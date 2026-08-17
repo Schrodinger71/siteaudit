@@ -6,7 +6,7 @@ import asyncio
 import time
 
 from .context import Options, build_context
-from .fetcher import DEFAULT_UA, Fetcher
+from .fetcher import DEFAULT_UA, MOBILE_UA, Fetcher
 from .models import Report
 from .modules import ALL_MODULES, Module
 from .modules.crawl import CrawlModule
@@ -36,6 +36,13 @@ def select_modules(
     return mods
 
 
+def choose_user_agent(options: Options) -> str:
+    """Свой User-Agent важнее всего, иначе десктопный или мобильный по флагу."""
+    if options.user_agent:
+        return options.user_agent
+    return MOBILE_UA if options.mobile else DEFAULT_UA
+
+
 async def audit_site(
     target: str,
     options: Options,
@@ -55,7 +62,7 @@ async def audit_site(
     fetcher = Fetcher(
         timeout=options.timeout,
         concurrency=options.concurrency,
-        user_agent=options.user_agent or DEFAULT_UA,
+        user_agent=choose_user_agent(options),
         verify=not options.insecure,
     )
     try:

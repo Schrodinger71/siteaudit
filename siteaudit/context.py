@@ -26,6 +26,7 @@ class Options:
     insecure: bool = False
     check_cve: bool = True
     browser: bool = False
+    mobile: bool = False
     user_agent: str | None = None
 
 

@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from siteaudit.audit import audit_site
+from siteaudit.audit import audit_site, choose_user_agent
 from siteaudit.context import Options
 from siteaudit.models import Severity
 from siteaudit.modules.crawl import CrawlModule
@@ -240,6 +240,18 @@ class TestTech:
 
 
 # -------------------------------------------------------------- прочее
+
+
+class TestUserAgent:
+    def test_desktop_by_default(self):
+        assert "Mobile" not in choose_user_agent(Options())
+
+    def test_mobile_flag_switches_agent(self):
+        agent = choose_user_agent(Options(mobile=True))
+        assert "Mobile" in agent and "Android" in agent
+
+    def test_custom_agent_wins_over_mobile_flag(self):
+        assert choose_user_agent(Options(mobile=True, user_agent="Мой бот")) == "Мой бот"
 
 
 def test_unreachable_host_is_reported_not_crashed():

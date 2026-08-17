@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="запустить настоящий браузер: Core Web Vitals, рендеринг JS, скриншот",
     )
+    p.add_argument(
+        "--mobile",
+        action="store_true",
+        help="проверять как мобильный: мобильный User-Agent, а с --browser ещё и "
+        "замер на экране телефона рядом с десктопным",
+    )
     p.add_argument("--safe", action="store_true", help="без активных проб служебных файлов (.git, .env и т. п.)")
     p.add_argument(
         "--no-cve",
@@ -126,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         insecure=args.insecure,
         check_cve=not args.no_cve,
         browser=args.browser,
+        mobile=args.mobile,
         user_agent=args.user_agent,
     )
     modules = select_modules(
