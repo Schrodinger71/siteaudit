@@ -8,6 +8,18 @@
 
 ## Установка
 
+Создание и активация виртуального окружения
+
+```bash
+python -m venv venv
+```
+
+```bash
+.\venv\Scripts\activate
+```
+
+Установка зависимостей
+
 ```bash
 pip install -r requirements.txt
 ```
