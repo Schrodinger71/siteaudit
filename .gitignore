@@ -209,6 +209,11 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# siteaudit: сгенерированные отчёты, скриншоты и базы истории прогонов
+out/
+*.db
+
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
@@ -216,3 +221,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+out

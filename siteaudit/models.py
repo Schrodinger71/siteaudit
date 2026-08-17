@@ -197,6 +197,59 @@ class ModuleResult:
 
 
 @dataclass
+class DiffItem:
+    """Находка, появившаяся или исчезнувшая по сравнению с прошлым прогоном."""
+
+    key: str
+    module: str
+    title: str
+    severity: Severity
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "module": self.module,
+            "title": self.title,
+            "severity": self.severity.value,
+        }
+
+
+@dataclass
+class Diff:
+    """Сравнение текущего прогона с предыдущим по тому же адресу."""
+
+    previous_at: datetime
+    previous_score: int
+    current_score: int
+    appeared: list[DiffItem] = field(default_factory=list)
+    fixed: list[DiffItem] = field(default_factory=list)
+    still_open: int = 0
+    #: Совпадал ли набор модулей. Если нет — баллы сравнивать нельзя,
+    #: сопоставляются только находки общих модулей.
+    same_modules: bool = True
+
+    @property
+    def score_delta(self) -> int:
+        return self.current_score - self.previous_score
+
+    @property
+    def empty(self) -> bool:
+        return not self.appeared and not self.fixed and self.score_delta == 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "previous_at": self.previous_at.isoformat(timespec="seconds"),
+            "previous_score": self.previous_score,
+            "current_score": self.current_score,
+            "score_delta": self.score_delta if self.same_modules else None,
+            "same_modules": self.same_modules,
+            "still_open": self.still_open,
+            "appeared": [i.to_dict() for i in self.appeared],
+            "fixed": [i.to_dict() for i in self.fixed],
+        }
+
+
+@dataclass
 class Report:
     """Итоговый отчёт по одному сайту."""
 
@@ -206,6 +259,8 @@ class Report:
     duration: float = 0.0
     modules: list[ModuleResult] = field(default_factory=list)
     techs: list[Tech] = field(default_factory=list)
+    screenshot: str | None = None
+    diff: Diff | None = None
     error: str | None = None
 
     @property
@@ -239,6 +294,7 @@ class Report:
             "score": self.score,
             "grade": self.grade,
             "error": self.error,
+            "diff": self.diff.to_dict() if self.diff else None,
             "technologies": [t.to_dict() for t in self.techs],
             "modules": [m.to_dict() for m in self.modules],
         }

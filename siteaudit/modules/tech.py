@@ -8,6 +8,7 @@ from ..context import AuditContext
 from ..models import ModuleResult, Severity, Tech
 from ..signatures import OUTDATED_THRESHOLDS, SIGNATURES
 from ..utils import truncate
+from ..vulns import lookup_many
 from .base import Module
 
 
@@ -67,11 +68,54 @@ class TechModule(Module):
         techs = sorted(detected.values(), key=lambda t: (-t.confidence, t.category, t.name))
         ctx.techs = techs
 
-        self._report(ctx, result, techs)
+        # Сначала CVE: если по технологии есть конкретные уязвимости, общее
+        # предупреждение «версия устарела» становится лишним шумом.
+        vulnerable = await self._cve(ctx, result, techs) if ctx.options.check_cve else set()
+        self._report(ctx, result, techs, vulnerable)
+
+    async def _cve(
+        self, ctx: AuditContext, result: ModuleResult, techs: list[Tech]
+    ) -> set[str]:
+        """Сверяет найденные версии с базой уязвимостей OSV.dev."""
+        found = await lookup_many(ctx.fetcher, techs)
+        if not found:
+            checked = [t for t in techs if t.version]
+            if checked:
+                result.ok(
+                    "tech.cve.clean",
+                    f"Известных уязвимостей не найдено ({len(checked)} версий проверено)",
+                )
+            return set()
+
+        for name, vulns in found.items():
+            tech = next((t for t in techs if t.name == name), None)
+            version = tech.version if tech else "?"
+            worst = vulns[0].severity
+            severity = Severity.CRITICAL if worst == "CRITICAL" else Severity.HIGH
+            result.add(
+                f"tech.cve.{name.lower()}",
+                f"{name} {version}: известные уязвимости ({len(vulns)})",
+                severity,
+                f"Версия числится уязвимой в базе OSV.dev. Максимальная критичность: {worst}.",
+                f"Обновите {name} до последней версии. Если обновление ломает совместимость, "
+                "проверьте, эксплуатируется ли уязвимость в вашем сценарии, и закройте "
+                "её обходным путём (WAF, CSP, отключение уязвимого компонента).",
+                evidence=[
+                    f"{v.label} [{v.severity}] {truncate(v.summary, 70)}" for v in vulns[:6]
+                ],
+            )
+        return set(found)
 
     # ------------------------------------------------------------------ вывод
 
-    def _report(self, ctx: AuditContext, result: ModuleResult, techs: list[Tech]) -> None:
+    def _report(
+        self,
+        ctx: AuditContext,
+        result: ModuleResult,
+        techs: list[Tech],
+        vulnerable: set[str] | None = None,
+    ) -> None:
+        vulnerable = vulnerable or set()
         by_cat: dict[str, list[Tech]] = {}
         for t in techs:
             by_cat.setdefault(t.category, []).append(t)
@@ -117,7 +161,7 @@ class TechModule(Module):
 
         # Устаревшие версии
         for t in techs:
-            if not t.version or t.name not in OUTDATED_THRESHOLDS:
+            if not t.version or t.name not in OUTDATED_THRESHOLDS or t.name in vulnerable:
                 continue
             threshold, why = OUTDATED_THRESHOLDS[t.name]
             if _older_than(t.version, threshold):

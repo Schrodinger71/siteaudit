@@ -9,11 +9,18 @@ from .context import Options, build_context
 from .fetcher import DEFAULT_UA, Fetcher
 from .models import Report
 from .modules import ALL_MODULES, Module
+from .modules.crawl import CrawlModule
 from .modules.tech import TechModule
+from .modules.vitals import VitalsModule
 from .utils import normalize_url
 
 
-def select_modules(only: list[str] | None, skip: list[str] | None) -> list[type[Module]]:
+def select_modules(
+    only: list[str] | None,
+    skip: list[str] | None,
+    crawl: int = 0,
+    browser: bool = False,
+) -> list[type[Module]]:
     mods = list(ALL_MODULES)
     if only:
         wanted = {k.strip().lower() for k in only}
@@ -21,6 +28,11 @@ def select_modules(only: list[str] | None, skip: list[str] | None) -> list[type[
     if skip:
         unwanted = {k.strip().lower() for k in skip}
         mods = [m for m in mods if m.key not in unwanted]
+    # Дорогие модули включаются только явными флагами
+    if not crawl:
+        mods = [m for m in mods if m is not CrawlModule]
+    if not browser:
+        mods = [m for m in mods if m is not VitalsModule]
     return mods
 
 
@@ -73,6 +85,7 @@ async def audit_site(
 
         order = {m.key: i for i, m in enumerate(mods)}
         report.modules.sort(key=lambda r: order.get(r.key, 99))
+        report.screenshot = ctx.screenshot
     finally:
         await fetcher.aclose()
         report.duration = time.perf_counter() - started

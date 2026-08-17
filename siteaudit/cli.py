@@ -12,8 +12,10 @@ from rich.console import Console
 from . import __version__
 from .audit import audit_many, select_modules
 from .context import Options
+from .history import DEFAULT_PATH, History
 from .modules import ALL_MODULES
 from .report import render_console, render_html, render_json
+from .report.console import render_history
 
 EPILOG = """\
 Примеры:
@@ -21,6 +23,8 @@ EPILOG = """\
   siteaudit https://example.com --html отчёт.html --json отчёт.json
   siteaudit example.com --only security,performance -v
   siteaudit example.com --crawl 20 --assets 80
+  siteaudit example.com --browser
+  siteaudit example.com --history-list
   siteaudit site1.ru site2.ru --safe
 
 Используйте инструмент только на сайтах, которыми владеете или на проверку
@@ -36,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("urls", nargs="+", metavar="URL", help="адреса сайтов для проверки")
+    p.add_argument("urls", nargs="*", metavar="URL", help="адреса сайтов для проверки")
     p.add_argument("--only", help=f"проверять только эти модули ({keys})")
     p.add_argument("--skip", help="пропустить эти модули")
     p.add_argument("--html", metavar="ФАЙЛ", help="сохранить HTML-отчёт")
@@ -47,8 +51,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=10, help="параллельных запросов (10)")
     p.add_argument("--assets", type=int, default=40, help="сколько ресурсов взвешивать (40)")
     p.add_argument("--links", type=int, default=30, help="сколько ссылок проверять на битость (30)")
-    p.add_argument("--crawl", type=int, default=0, help="дополнительно просканировать N внутренних страниц")
+    p.add_argument("--crawl", type=int, default=0, help="обойти до N страниц сайта (включает модуль crawl)")
+    p.add_argument("--depth", type=int, default=3, help="максимальная глубина обхода от главной (3)")
+    p.add_argument(
+        "--browser",
+        action="store_true",
+        help="запустить настоящий браузер: Core Web Vitals, рендеринг JS, скриншот",
+    )
     p.add_argument("--safe", action="store_true", help="без активных проб служебных файлов (.git, .env и т. п.)")
+    p.add_argument(
+        "--no-cve",
+        action="store_true",
+        help="не обращаться к osv.dev за списком уязвимостей найденных версий",
+    )
     p.add_argument("--insecure", action="store_true", help="не проверять TLS-сертификат при запросах")
     p.add_argument("--user-agent", help="свой User-Agent")
     p.add_argument(
@@ -56,6 +71,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         metavar="N",
         help="выйти с кодом 1, если итоговая оценка ниже N (для CI)",
+    )
+    history = p.add_argument_group("история прогонов")
+    history.add_argument(
+        "--no-history", action="store_true", help="не сохранять прогон и не показывать дифф"
+    )
+    history.add_argument(
+        "--history-list",
+        nargs="?",
+        type=int,
+        const=15,
+        metavar="N",
+        help="показать последние N прогонов (для указанных URL или для всех) и выйти",
+    )
+    history.add_argument(
+        "--history-db", metavar="ФАЙЛ", help=f"путь к базе истории (по умолчанию {DEFAULT_PATH})"
     )
     p.add_argument("--version", action="version", version=f"siteaudit {__version__}")
     return p
@@ -72,6 +102,18 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     console = Console()
     err = Console(stderr=True)
+    db_path = Path(args.history_db).expanduser() if args.history_db else None
+
+    if args.history_list is not None:
+        with History(db_path) as history:
+            targets = args.urls or [None]
+            for target in targets:
+                render_history(history.runs(target, limit=args.history_list), target, console)
+        return 0
+
+    if not args.urls:
+        err.print("[red]Не указан ни один адрес.[/red] Пример: siteaudit example.com")
+        return 2
 
     options = Options(
         timeout=args.timeout,
@@ -79,13 +121,18 @@ def main(argv: list[str] | None = None) -> int:
         max_assets=max(0, args.assets),
         max_links=max(0, args.links),
         crawl=max(0, args.crawl),
+        depth=max(0, args.depth),
         safe=args.safe,
         insecure=args.insecure,
+        check_cve=not args.no_cve,
+        browser=args.browser,
         user_agent=args.user_agent,
     )
     modules = select_modules(
         args.only.split(",") if args.only else None,
         args.skip.split(",") if args.skip else None,
+        crawl=options.crawl,
+        browser=options.browser,
     )
     if not modules:
         err.print("[red]Не выбрано ни одного модуля.[/red] Проверьте --only/--skip.")
@@ -100,6 +147,18 @@ def main(argv: list[str] | None = None) -> int:
                 progress=lambda msg: status.update(f"[grey62]{msg}"),
             )
         )
+
+    if not args.no_history:
+        try:
+            with History(db_path) as history:
+                for report in reports:
+                    if report.error:
+                        continue
+                    # Дифф считаем до записи, иначе сравним прогон сам с собой
+                    report.diff = history.diff_against_previous(report)
+                    history.save(report)
+        except Exception as exc:  # noqa: BLE001 — история не должна ронять аудит
+            err.print(f"[yellow]История недоступна:[/yellow] {exc}")
 
     if not args.quiet:
         render_console(reports, console, verbose=args.verbose)

@@ -21,8 +21,11 @@ class Options:
     max_assets: int = 40
     max_links: int = 30
     crawl: int = 0
+    depth: int = 3
     safe: bool = False
     insecure: bool = False
+    check_cve: bool = True
+    browser: bool = False
     user_agent: str | None = None
 
 
@@ -48,6 +51,7 @@ class AuditContext:
     http_probe: Fetched | None = None
     notes: list[str] = field(default_factory=list)
     techs: list = field(default_factory=list)  # list[Tech], заполняет TechModule
+    screenshot: str | None = None  # data:image/jpeg;base64,… от модуля vitals
 
     def tech(self, name: str):
         """Возвращает обнаруженную технологию по имени или None."""
