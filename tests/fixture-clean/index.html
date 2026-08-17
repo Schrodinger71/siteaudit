@@ -31,12 +31,14 @@
 <script src="/app.js" defer></script>
 </head>
 <body>
+<a href="#content" class="skip">Пропустить навигацию</a>
 <nav>
   <a href="/section.html">Раздел</a>
   <a href="/article.html">Статья</a>
   <a href="/contacts.html">Контакты</a>
 </nav>
 
+<main id="content">
 <h1>Эталонная страница для проверки аудита</h1>
 
 <p>Эта страница существует для одной цели: убедиться, что инструмент не выдаёт
@@ -77,5 +79,13 @@
 абзаца добавлен именно для того, чтобы счётчик слов уверенно преодолел границу и
 проверка объёма контента прошла успешно, подтвердив отсутствие ложного
 срабатывания на нормальной наполненной странице сайта.</p>
+
+<h2>Форма</h2>
+<form action="/search" method="get">
+  <label for="query">Поисковый запрос</label>
+  <input type="search" id="query" name="q">
+  <button type="submit">Найти</button>
+</form>
+</main>
 </body>
 </html>

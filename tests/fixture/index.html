@@ -18,9 +18,19 @@
 <img src="/img/photo.jpg">
 <img src="http://example.com/insecure.png" alt="mixed">
 <form action="http://example.com/login" method="post">
-  <input type="password" name="pass">
+  <input type="password" name="pass" placeholder="Пароль">
+  <input type="text" name="login" placeholder="Логин">
   <button>Войти</button>
 </form>
+
+<!-- намеренные нарушения доступности -->
+<a href="#"><img src="/img/icon.png"></a>
+<button></button>
+<iframe src="/page1.html" width="200" height="100"></iframe>
+<div id="block">Первый</div>
+<div id="block">Второй с тем же id</div>
+<a href="/page1.html" tabindex="5">Вырывается вперёд по табу</a>
+<table><tr><td>Ячейка без заголовка столбца</td></tr></table>
 <nav>
   <a href="/page1.html">Страница один</a>
   <a href="/page2.html">Страница два</a>

@@ -14,6 +14,7 @@ import pytest
 from siteaudit.audit import audit_site, choose_user_agent
 from siteaudit.context import Options
 from siteaudit.models import Severity
+from siteaudit.modules.a11y import A11yModule
 from siteaudit.modules.crawl import CrawlModule
 from siteaudit.modules.performance import PerformanceModule
 from siteaudit.modules.security import SecurityModule
@@ -240,6 +241,51 @@ class TestTech:
 
 
 # -------------------------------------------------------------- прочее
+
+
+# ------------------------------------------------------------ доступность
+
+
+@pytest.fixture(scope="module")
+def dirty_a11y(dirty_site):
+    report = run(dirty_site, [A11yModule])
+    assert not report.error, report.error
+    return report.modules[0]
+
+
+class TestAccessibility:
+    @pytest.mark.parametrize(
+        "finding",
+        [
+            "a11y.landmark.main",      # нет <main>
+            "a11y.form.label",         # поля только с placeholder
+            "a11y.link.name",          # ссылка-иконка без текста
+            "a11y.button.name",        # пустая кнопка
+            "a11y.iframe.title",       # фрейм без title
+            "a11y.id.duplicate",       # два элемента с id="block"
+            "a11y.tabindex",           # tabindex="5"
+            "a11y.link.placeholder",   # href="#"
+            "a11y.table.headers",      # таблица без th
+        ],
+    )
+    def test_dirty_stand_findings(self, dirty_a11y, finding):
+        assert finding in problem_ids(dirty_a11y)
+
+    def test_clean_stand_has_no_a11y_problems(self, clean_site):
+        report = run(clean_site, [A11yModule])
+        assert problem_ids(report.modules[0]) == set(), (
+            "на эталонном стенде не должно быть замечаний по доступности: "
+            + ", ".join(f.id for f in report.modules[0].problems)
+        )
+
+    def test_clean_stand_labels_recognized(self, clean_site):
+        report = run(clean_site, [A11yModule])
+        passed = {f.id for f in report.modules[0].passed}
+        assert {"a11y.form.label", "a11y.landmark.main", "a11y.names"} <= passed
+
+    def test_contrast_skipped_without_browser(self, dirty_a11y):
+        """Без --browser модуль обязан сказать, что контраст не измерялся."""
+        assert "a11y.contrast.skipped" in ids(dirty_a11y)
 
 
 class TestUserAgent:
