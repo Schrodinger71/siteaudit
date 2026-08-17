@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 from ..context import AuditContext
 from ..models import ModuleResult, Severity
-from ..utils import abs_url, pct, similarity, truncate
+from ..utils import abs_url, counted, pct, similarity, truncate
 from .base import Module
 
 TITLE_MIN, TITLE_MAX = 30, 65
@@ -49,8 +49,6 @@ class SeoModule(Module):
         await self._robots_sitemap(ctx, result)
         await self._not_found(ctx, result)
         await self._links(ctx, result)
-        if ctx.options.crawl:
-            await self._crawl(ctx, result)
 
     # ------------------------------------------------------------ мета-теги
 
@@ -92,7 +90,7 @@ class SeoModule(Module):
         if len(tags) > 1:
             result.add(
                 "seo.title.duplicate",
-                f"На странице {len(tags)} тегов <title>",
+                f"На странице {counted(len(tags), 'тег', 'тега', 'тегов')} <title>",
                 Severity.MEDIUM,
                 "Дубли <title> сбивают поисковик — он выберет первый или склеит их.",
                 "Оставьте ровно один <title> в <head>.",
@@ -180,7 +178,7 @@ class SeoModule(Module):
         if skips:
             result.add(
                 "seo.headings.skip",
-                f"Нарушена иерархия заголовков ({len(skips)} разрывов)",
+                f"Нарушена иерархия заголовков ({counted(len(skips), 'разрыв', 'разрыва', 'разрывов')})",
                 Severity.LOW,
                 "; ".join(f"H{a} → H{b}" for a, b in skips[:5]),
                 "Не перепрыгивайте через уровни (H2 → H4). Заголовки — это оглавление "
@@ -450,13 +448,13 @@ class SeoModule(Module):
         text = copy.get_text(" ", strip=True)
         words = len(re.findall(r"[\w\-]+", text))
         ratio = pct(len(text.encode("utf-8")), max(1, len(ctx.page.content)))
-        result.fact("Слов текста", words)
+        result.fact("Объём текста", counted(words, "слово", "слова", "слов"))
         result.fact("Доля текста в HTML", f"{ratio:.1f}%")
 
         if words < 150:
             result.add(
                 "seo.content.thin",
-                f"Мало текстового контента ({words} слов)",
+                f"Мало текстового контента ({counted(words, 'слово', 'слова', 'слов')})",
                 Severity.MEDIUM if words < 60 else Severity.LOW,
                 "Страницы с тонким контентом плохо ранжируются и могут попасть под фильтр.",
                 "Доведите основной текст минимум до 300–500 слов осмысленного содержания. "
@@ -464,7 +462,10 @@ class SeoModule(Module):
                 "(SSR или предрендер).",
             )
         else:
-            result.ok("seo.content", f"Объём контента достаточный ({words} слов)")
+            result.ok(
+                "seo.content",
+                f"Объём контента достаточный ({counted(words, 'слово', 'слова', 'слов')})",
+            )
 
         if ratio < 5 and words > 0:
             result.add(
@@ -662,61 +663,9 @@ class SeoModule(Module):
                 ],
             )
         else:
-            result.ok("seo.links", f"Проверено {len(sample)} ссылок — битых нет")
-
-    async def _crawl(self, ctx: AuditContext, result: ModuleResult) -> None:
-        """Лёгкий обход внутренних страниц: ищем дубли title и битые страницы."""
-        targets = ctx.internal_links()[: ctx.options.crawl]
-        if not targets:
-            return
-        pages = await asyncio.gather(*[ctx.fetcher.get(u) for u in targets])
-
-        titles: dict[str, list[str]] = {}
-        no_title: list[str] = []
-        bad_status: list[str] = []
-        for url, resp in zip(targets, pages):
-            if not resp.ok:
-                bad_status.append(f"{resp.status or 'ошибка'} — {truncate(url, 60)}")
-                continue
-            m = re.search(r"<title[^>]*>(.*?)</title>", resp.text, re.I | re.S)
-            t = " ".join(m.group(1).split()) if m else ""
-            if not t:
-                no_title.append(truncate(url, 60))
-            else:
-                titles.setdefault(t.lower(), []).append(url)
-
-        result.fact("Просканировано страниц", f"{len(targets)} (--crawl)")
-
-        dupes = {t: urls for t, urls in titles.items() if len(urls) > 1}
-        if dupes:
-            result.add(
-                "seo.crawl.duplicate-titles",
-                f"Дубли title на внутренних страницах ({len(dupes)} групп)",
-                Severity.MEDIUM,
-                "Одинаковые заголовки мешают поисковику различать страницы.",
-                "Сделайте title уникальным для каждой страницы — подставляйте в шаблон "
-                "название товара/раздела/статьи.",
-                evidence=[
-                    f"«{truncate(t, 45)}» ×{len(urls)}" for t, urls in list(dupes.items())[:5]
-                ],
-            )
-        if no_title:
-            result.add(
-                "seo.crawl.no-title",
-                f"Страницы без title ({len(no_title)})",
-                Severity.MEDIUM,
-                "",
-                "Проверьте шаблон — вероятно, title не подставляется для этого типа страниц.",
-                evidence=no_title[:6],
-            )
-        if bad_status:
-            result.add(
-                "seo.crawl.bad-status",
-                f"Внутренние страницы с ошибкой ({len(bad_status)})",
-                Severity.HIGH,
-                "",
-                "Исправьте страницы или ссылки на них.",
-                evidence=bad_status[:8],
+            result.ok(
+                "seo.links",
+                f"Проверено {counted(len(sample), 'ссылка', 'ссылки', 'ссылок')} — битых нет",
             )
 
 

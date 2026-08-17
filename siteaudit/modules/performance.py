@@ -8,7 +8,7 @@ import re
 from ..context import AuditContext
 from ..fetcher import Fetched
 from ..models import ModuleResult, Severity
-from ..utils import human_ms, human_size, pct, truncate
+from ..utils import counted, human_ms, human_size, pct, truncate
 from .base import Module
 
 TTFB_GOOD, TTFB_OK = 0.2, 0.6
@@ -181,7 +181,8 @@ class PerformanceModule(Module):
         if blocking_js:
             result.add(
                 "perf.render.js",
-                f"{len(blocking_js)} блокирующих скриптов в <head>",
+                f"{counted(len(blocking_js), 'блокирующий скрипт', 'блокирующих скрипта', 'блокирующих скриптов')}"
+                " в <head>",
                 Severity.HIGH if len(blocking_js) > 2 else Severity.MEDIUM,
                 "Парсинг HTML останавливается, пока такой скрипт не скачается и не выполнится.",
                 "Добавьте defer (или async для независимых счётчиков), либо перенесите "

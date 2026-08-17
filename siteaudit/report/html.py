@@ -68,6 +68,20 @@ ol.plan{padding-left:20px;margin:6px 0 0}
 ol.plan li{margin-bottom:12px}
 ol.plan .t{font-weight:600}
 ol.plan .r{color:var(--muted);font-size:14px}
+.delta{font-size:13px;font-weight:700;padding:2px 9px;border-radius:99px;margin-left:8px;
+  vertical-align:middle}
+.delta.up{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.delta.down{background:color-mix(in srgb,var(--crit) 18%,transparent);color:var(--crit)}
+.delta.same{background:var(--line);color:var(--muted)}
+.diffcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-top:14px}
+.diffcols h3{font-size:14px;margin:0 0 6px}
+.diffcols h3.good{color:var(--ok)} .diffcols h3.bad{color:var(--crit)}
+ul.difflist{margin:0;padding-left:18px;font-size:14px}
+ul.difflist li{margin-bottom:5px}
+ul.difflist.good li::marker{color:var(--ok)}
+ul.difflist.bad li::marker{color:var(--crit)}
+.shot{display:block;width:100%;max-width:100%;height:auto;margin-top:10px;
+  border:1px solid var(--line);border-radius:8px}
 .tech{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .tech span{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:4px 10px}
 .tech b{font-weight:600}
@@ -114,7 +128,9 @@ def _report_html(report: Report) -> str:
         f"{escape(report.final_url)}</a> · проверка заняла {report.duration:.1f} с · "
         f'{report.started_at.strftime("%d.%m.%Y %H:%M")}</div>',
         _scores_html(report),
+        _diff_html(report),
         _plan_html(report),
+        _screenshot_html(report),
         _tech_html(report),
     ]
     for module in report.modules:
@@ -152,6 +168,64 @@ def _plan_html(report: Report) -> str:
         for f in top
     )
     return f'<div class="card"><h2>Что делать в первую очередь</h2><ol class="plan">{items}</ol></div>'
+
+
+def _diff_html(report: Report) -> str:
+    diff = report.diff
+    if not diff:
+        return ""
+
+    delta = diff.score_delta
+    when = diff.previous_at.strftime("%d.%m.%Y %H:%M")
+    if not diff.same_modules:
+        badge = ""
+        caption = (
+            f"Прошлая проверка от {when} запускалась с другим набором модулей — "
+            "баллы не сравниваем, сопоставлены только находки общих проверок."
+        )
+    else:
+        if delta > 0:
+            badge = f'<span class="delta up">▲ +{delta}</span>'
+        elif delta < 0:
+            badge = f'<span class="delta down">▼ {delta}</span>'
+        else:
+            badge = '<span class="delta same">без изменений</span>'
+        caption = (
+            f"было {diff.previous_score}/100 ({when}) → стало {diff.current_score}/100 · "
+            f"без изменений остаётся находок: {diff.still_open}"
+        )
+
+    columns = []
+    if diff.fixed:
+        items = "".join(f"<li>{escape(i.title)}</li>" for i in diff.fixed[:10])
+        columns.append(
+            f'<div><h3 class="good">Исправлено — {len(diff.fixed)}</h3>'
+            f'<ul class="difflist good">{items}</ul></div>'
+        )
+    if diff.appeared:
+        items = "".join(f"<li>{escape(i.title)}</li>" for i in diff.appeared[:10])
+        columns.append(
+            f'<div><h3 class="bad">Появилось — {len(diff.appeared)}</h3>'
+            f'<ul class="difflist bad">{items}</ul></div>'
+        )
+    if not columns:
+        columns.append('<div class="sub">Состав находок не изменился.</div>')
+
+    return (
+        f'<div class="card"><h2>Изменения с прошлой проверки {badge}</h2>'
+        f'<div class="sub" style="margin:6px 0 0">{escape(caption)}</div>'
+        f'<div class="diffcols">{"".join(columns)}</div></div>'
+    )
+
+
+def _screenshot_html(report: Report) -> str:
+    if not report.screenshot:
+        return ""
+    return (
+        '<div class="card"><h2>Так страница выглядит в браузере</h2>'
+        f'<img class="shot" src="{report.screenshot}" alt="Скриншот первого экрана" '
+        'loading="lazy"></div>'
+    )
 
 
 def _tech_html(report: Report) -> str:

@@ -86,6 +86,24 @@ def human_ms(seconds: float | None) -> str:
     return f"{seconds:.2f} с"
 
 
+def plural(count: int, one: str, few: str, many: str) -> str:
+    """Русское склонение существительного при числительном: 1 группа, 2 группы, 5 групп."""
+    tail = abs(count) % 100
+    if 11 <= tail <= 14:
+        return many
+    tail %= 10
+    if tail == 1:
+        return one
+    if 2 <= tail <= 4:
+        return few
+    return many
+
+
+def counted(count: int, one: str, few: str, many: str) -> str:
+    """То же, но сразу с числом: `counted(2, 'слово', 'слова', 'слов')` → «2 слова»."""
+    return f"{count} {plural(count, one, few, many)}"
+
+
 def truncate(text: str, limit: int = 120) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= limit else text[: limit - 1] + "…"

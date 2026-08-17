@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..models import Report, Severity
+from ..utils import plural
 
 BAR_WIDTH = 24
 
@@ -87,6 +88,9 @@ def _render_one(report: Report, console: Console, verbose: bool) -> None:
     console.print(summary)
     console.print()
 
+    if report.diff:
+        _render_diff(report.diff, console)
+
     for module in report.modules:
         _render_module(module, console, verbose)
 
@@ -104,6 +108,113 @@ def _render_one(report: Report, console: Console, verbose: bool) -> None:
                 ),
             )
         console.print(Panel(plan, title="[bold]Что делать в первую очередь[/bold]", border_style="magenta"))
+
+
+def _render_diff(diff, console: Console) -> None:
+    delta = diff.score_delta
+    points = plural(abs(delta), "балл", "балла", "баллов")
+    when = diff.previous_at.strftime("%d.%m.%Y %H:%M")
+
+    if not diff.same_modules:
+        body = [
+            Text(f"Прошлая проверка от {when} запускалась с другим набором модулей —", style="grey62"),
+            Text("баллы не сравниваем, сопоставлены только находки общих проверок.", style="grey62"),
+            Text(),
+        ]
+    else:
+        if delta > 0:
+            headline = Text(f"▲ +{delta} {points}", style="bold green")
+        elif delta < 0:
+            headline = Text(f"▼ {delta} {points}", style="bold red")
+        else:
+            headline = Text("оценка не изменилась", style="grey62")
+        body = [
+            Text.assemble(
+                headline,
+                Text(
+                    f"   было {diff.previous_score}/100 ({when}) "
+                    f"→ стало {diff.current_score}/100",
+                    style="grey62",
+                ),
+            ),
+            Text(),
+        ]
+
+    if diff.fixed:
+        body.append(Text(f"Исправлено ({len(diff.fixed)}):", style="bold green"))
+        for item in diff.fixed[:8]:
+            body.append(Text(f"  ✓ {item.title}", style="green"))
+        if len(diff.fixed) > 8:
+            body.append(Text(f"  … и ещё {len(diff.fixed) - 8}", style="grey50"))
+        body.append(Text())
+
+    if diff.appeared:
+        body.append(Text(f"Появилось ({len(diff.appeared)}):", style="bold red"))
+        for item in diff.appeared[:8]:
+            body.append(
+                Text.assemble(
+                    Text("  ✗ ", style=item.severity.color),
+                    Text(item.title, style=item.severity.color),
+                )
+            )
+        if len(diff.appeared) > 8:
+            body.append(Text(f"  … и ещё {len(diff.appeared) - 8}", style="grey50"))
+        body.append(Text())
+
+    if not diff.fixed and not diff.appeared:
+        body.append(Text("Состав находок не изменился.", style="grey62"))
+    else:
+        body.append(Text(f"Без изменений остаётся находок: {diff.still_open}", style="grey50"))
+
+    console.print(
+        Panel(
+            Group(*body),
+            title="[bold]Изменения с прошлой проверки[/bold]",
+            border_style=(
+                "grey50"
+                if not diff.same_modules
+                else "green" if delta > 0 else "red" if delta < 0 else "grey50"
+            ),
+        )
+    )
+    console.print()
+
+
+def render_history(runs, target: str | None, console: Console) -> None:
+    """Таблица прошлых прогонов для --history-list."""
+    title = f"История: {target}" if target else "История всех прогонов"
+    if not runs:
+        console.print(Panel(Text("Прогонов не найдено.", style="grey62"), title=title))
+        return
+
+    table = Table(title=title, box=None, header_style="bold grey62", padding=(0, 2))
+    table.add_column("Дата")
+    table.add_column("Адрес", overflow="ellipsis", max_width=34)
+    table.add_column("Оценка", justify="right")
+    table.add_column("Δ", justify="right")
+    table.add_column("Время", justify="right")
+
+    ordered = list(reversed(runs))  # от старых к новым, чтобы дельта читалась
+    previous: int | None = None
+    rows = []
+    for run in ordered:
+        delta = "" if previous is None else f"{run.score - previous:+d}"
+        style = "green" if previous is not None and run.score > previous else (
+            "red" if previous is not None and run.score < previous else "grey62"
+        )
+        rows.append((run, delta, style))
+        previous = run.score
+
+    for run, delta, style in reversed(rows):
+        table.add_row(
+            run.started_at.strftime("%d.%m.%Y %H:%M"),
+            run.target,
+            Text(f"{run.score}/100 ({run.grade})", style=_score_color(run.score)),
+            Text(delta, style=style),
+            f"{run.duration:.1f} с",
+        )
+    console.print(table)
+    console.print()
 
 
 def _render_module(module, console: Console, verbose: bool) -> None:

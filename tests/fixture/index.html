@@ -1,7 +1,11 @@
 <!doctype html>
-<html>
+<html lang="ru">
 <head>
-<title>Тест</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тестовый стенд siteaudit — проверка находок аудита</title>
+<meta name="description" content="Стенд для проверки инструмента аудита: здесь намеренно собраны типовые ошибки SEO, безопасности и производительности сайта.">
+<link rel="canonical" href="http://127.0.0.1:8931/">
 <meta name="generator" content="WordPress 5.9">
 <script src="/wp-includes/js/jquery/jquery.min.js?ver=1.11.3"></script>
 <link rel="stylesheet" href="/wp-content/themes/demo/style.css">
@@ -9,15 +13,25 @@
 </head>
 <body>
 <h1>Первый</h1>
-<h1>Второй</h1>
-<h4>Пропуск уровня</h4>
+<h2>Второй</h2>
+<h3>Третий</h3>
 <img src="/img/photo.jpg">
 <img src="http://example.com/insecure.png" alt="mixed">
 <form action="http://example.com/login" method="post">
   <input type="password" name="pass">
   <button>Войти</button>
 </form>
-<a href="/broken-page">битая ссылка</a>
+<nav>
+  <a href="/page1.html">Страница один</a>
+  <a href="/page2.html">Страница два</a>
+  <a href="/dup-a.html">Дубль А</a>
+  <a href="/dup-b.html">Дубль Б</a>
+  <a href="/no-title.html">Без заголовка</a>
+  <a href="/noindex.html">Закрытая</a>
+  <a href="/deep/1.html">Вглубь</a>
+  <a href="/admin/secret.html">Админка</a>
+  <a href="/broken-page">битая ссылка</a>
+</nav>
 <a href="https://example.com" target="_blank">внешняя</a>
 <!-- TODO: убрать debug api_key перед релизом -->
 <script>var api_key = "abcdefghijklmnopqrstuvwxyz123456";</script>
