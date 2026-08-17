@@ -86,6 +86,30 @@ def human_ms(seconds: float | None) -> str:
     return f"{seconds:.2f} с"
 
 
+def rel_values(tag) -> list[str]:
+    """Значения атрибута rel тега в нижнем регистре.
+
+    Нужна отдельная функция, потому что BeautifulSoup ведёт себя непоследовательно:
+    `tag.get("rel")` возвращает список, а в функцию-фильтр `find_all(rel=...)`
+    передаёт исходную строку. Из-за этого фильтры вида `rel=lambda v: "icon" in v`
+    молча перебирают отдельные символы и не находят ничего.
+    """
+    rel = tag.get("rel") or []
+    if isinstance(rel, str):
+        rel = rel.split()
+    return [str(value).lower() for value in rel]
+
+
+def has_rel(tag, value: str) -> bool:
+    """Точное совпадение одного из значений rel: canonical, stylesheet и т. п."""
+    return value.lower() in rel_values(tag)
+
+
+def has_icon_rel(tag) -> bool:
+    """Любая иконка: icon, shortcut icon, apple-touch-icon, mask-icon."""
+    return any("icon" in value for value in rel_values(tag))
+
+
 def plural(count: int, one: str, few: str, many: str) -> str:
     """Русское склонение существительного при числительном: 1 группа, 2 группы, 5 групп."""
     tail = abs(count) % 100

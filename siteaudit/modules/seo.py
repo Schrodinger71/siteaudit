@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 from ..context import AuditContext
 from ..models import ModuleResult, Severity
-from ..utils import abs_url, counted, pct, similarity, truncate
+from ..utils import abs_url, counted, has_icon_rel, has_rel, pct, similarity, truncate
 from .base import Module
 
 TITLE_MIN, TITLE_MAX = 30, 65
@@ -46,6 +46,7 @@ class SeoModule(Module):
         self._structured_data(ctx, result)
         self._content(ctx, result)
         self._url_quality(ctx, result)
+        await self._favicon(ctx, result)
         await self._robots_sitemap(ctx, result)
         await self._not_found(ctx, result)
         await self._links(ctx, result)
@@ -221,7 +222,7 @@ class SeoModule(Module):
             )
 
     def _canonical(self, ctx: AuditContext, result: ModuleResult) -> None:
-        links = ctx.soup.find_all("link", rel=lambda v: v and "canonical" in [x.lower() for x in v])
+        links = [t for t in ctx.soup.find_all("link", href=True) if has_rel(t, "canonical")]
         hrefs = [abs_url(ctx.url, t.get("href", "")) for t in links]
         hrefs = [h for h in hrefs if h]
         result.fact("Canonical", truncate(hrefs[0], 80) if hrefs else "не задан")
@@ -319,15 +320,6 @@ class SeoModule(Module):
                 'Добавьте <meta charset="utf-8"> первой строкой в <head>.',
             )
 
-        favicon = ctx.soup.find("link", rel=lambda v: v and any("icon" in x.lower() for x in v))
-        if not favicon:
-            result.add(
-                "seo.favicon.missing",
-                "Не найден favicon",
-                Severity.LOW,
-                "Иконка влияет на узнаваемость в выдаче и вкладках браузера.",
-                'Добавьте <link rel="icon"> и apple-touch-icon.',
-            )
 
     def _images(self, ctx: AuditContext, result: ModuleResult) -> None:
         imgs = ctx.soup.find_all("img")
@@ -506,6 +498,36 @@ class SeoModule(Module):
             result.ok("seo.url", "Структура URL в порядке")
 
     # -------------------------------------------------------- сеть/файлы
+
+    async def _favicon(self, ctx: AuditContext, result: ModuleResult) -> None:
+        """Иконка объявляется тегом link либо просто лежит в /favicon.ico."""
+        declared = [t for t in ctx.soup.find_all("link") if has_icon_rel(t)]
+        if declared:
+            result.fact("Favicon", f"объявлен в разметке ({len(declared)} шт.)")
+            result.ok("seo.favicon", "Favicon объявлен")
+            return
+
+        probe = await ctx.fetcher.get(f"{ctx.origin}/favicon.ico")
+        if probe.status == 200 and probe.size > 0 and "html" not in probe.content_type:
+            result.fact("Favicon", "нет тега link, но /favicon.ico отдаётся")
+            result.add(
+                "seo.favicon.undeclared",
+                "Favicon не объявлен в разметке",
+                Severity.LOW,
+                "Файл /favicon.ico доступен, браузеры его найдут, но тега <link> нет.",
+                'Пропишите <link rel="icon"> явно и добавьте apple-touch-icon 180×180 — '
+                "иначе на мобильных при добавлении на домашний экран возьмётся скриншот.",
+            )
+            return
+
+        result.fact("Favicon", "не найден")
+        result.add(
+            "seo.favicon.missing",
+            "Не найден favicon",
+            Severity.LOW,
+            "Ни тега <link rel=\"icon\">, ни файла /favicon.ico.",
+            'Добавьте <link rel="icon"> и apple-touch-icon.',
+        )
 
     async def _robots_sitemap(self, ctx: AuditContext, result: ModuleResult) -> None:
         robots = ctx.robots
