@@ -7,8 +7,10 @@ import re
 
 from ..context import AuditContext
 from ..fetcher import Fetched
+from ..images import PILLOW_AVAILABLE, WEBP_QUALITY, WORTH_IT
+from ..images import analyze as analyze_images
 from ..models import ModuleResult, Severity
-from ..utils import counted, has_rel, human_ms, human_size, pct, truncate
+from ..utils import abs_url, counted, has_rel, human_ms, human_size, pct, truncate
 from .base import Module
 
 TTFB_GOOD, TTFB_OK = 0.2, 0.6
@@ -313,6 +315,8 @@ class PerformanceModule(Module):
         uncompressed: list[str] = []
         legacy_images: list[tuple[str, int]] = []
         failed: list[str] = []
+        image_payloads: list[tuple[str, bytes, int | None]] = []
+        shown_widths = _displayed_widths(ctx)
 
         for (kind, url), resp in zip(sample, responses):
             if not resp.ok:
@@ -341,6 +345,8 @@ class PerformanceModule(Module):
                 fmt = ctype.split("/")[-1]
                 if fmt not in MODERN_IMAGE and size > HEAVY_IMAGE:
                     legacy_images.append((url, size))
+                if resp.content:
+                    image_payloads.append((url, resp.content, shown_widths.get(url)))
 
         result.fact("Вес страницы (выборка)", human_size(total))
         for kind, label in (("script", "JS"), ("style", "CSS"), ("image", "Изображения")):
@@ -389,7 +395,8 @@ class PerformanceModule(Module):
                 ],
             )
 
-        if legacy_images:
+        measured = await self._image_savings(result, image_payloads)
+        if legacy_images and not measured:
             result.add(
                 "perf.img.format",
                 f"Крупные изображения в устаревших форматах ({len(legacy_images)})",
@@ -437,3 +444,116 @@ class PerformanceModule(Module):
                 "Проверьте пути и наличие файлов на сервере.",
                 evidence=failed[:8],
             )
+
+    # ------------------------------------------------------- изображения
+
+    async def _image_savings(
+        self, result: ModuleResult, payloads: list[tuple[str, bytes, int | None]]
+    ) -> bool:
+        """Считает, сколько реально сэкономит пережатие. True — если посчитали."""
+        if not payloads:
+            return False
+        if not PILLOW_AVAILABLE:
+            result.add(
+                "perf.img.pillow",
+                "Точная экономия на картинках не посчитана",
+                Severity.INFO,
+                "Не установлена библиотека Pillow.",
+                "Установите `pip install pillow`, и инструмент покажет, сколько "
+                "мегабайт даст пережатие каждой картинки, вместо общего совета.",
+            )
+            return False
+
+        savings, skipped = await analyze_images(payloads)
+        if not savings:
+            return False
+
+        # Экономию заявляем только там, где она берётся из смены формата.
+        # Пережать WebP в WebP тоже «выгодно», но за счёт потери качества.
+        convertible = [s for s in savings if not s.already_modern]
+        modern = [s for s in savings if s.already_modern]
+
+        if modern:
+            result.fact(
+                "Изображения в современных форматах",
+                f"{len(modern)} из {len(savings)} ({human_size(sum(s.original for s in modern))})",
+            )
+
+        if convertible:
+            original = sum(s.original for s in convertible)
+            optimized = sum(s.optimized for s in convertible)
+            saved = max(0, original - optimized)
+            share = pct(saved, original)
+
+            result.fact(
+                "JPEG/PNG: сейчас / после конвертации",
+                f"{human_size(original)} → {human_size(optimized)} "
+                f"(−{human_size(saved)}, {share:.0f}%)",
+            )
+
+            worth = [s for s in convertible if s.ratio >= WORTH_IT and s.saved > 20_000]
+            if worth and share >= 20:
+                result.add(
+                    "perf.img.savings",
+                    f"Изображения можно облегчить на {human_size(saved)} ({share:.0f}%)",
+                    Severity.HIGH if share >= 50 else Severity.MEDIUM,
+                    f"Проверено {counted(len(convertible), 'изображение', 'изображения', 'изображений')}"
+                    f" в устаревших форматах, общий вес {human_size(original)}. Цифры получены "
+                    f"реальным пережатием в WebP с качеством {WEBP_QUALITY}, а не оценкой.",
+                    "Переведите картинки в WebP или AVIF при сборке или на стороне CDN. "
+                    "Отдавайте через <picture> с fallback на исходный формат.",
+                    evidence=[
+                        f"−{human_size(s.saved)} ({s.ratio * 100:.0f}%): {s.fmt} "
+                        f"{s.width}×{s.height}, {human_size(s.original)} — {truncate(s.url, 45)}"
+                        for s in worth[:6]
+                    ],
+                )
+            else:
+                result.ok(
+                    "perf.img.savings",
+                    f"Конвертация в WebP дала бы всего {share:.0f}% — не стоит возни",
+                )
+        elif modern:
+            result.ok(
+                "perf.img.format",
+                f"Все изображения уже в современных форматах ({len(modern)} шт.)",
+            )
+
+        oversized = [s for s in savings if s.oversized]
+        if oversized:
+            result.add(
+                "perf.img.oversized",
+                f"Картинки отдаются крупнее, чем показываются ({len(oversized)})",
+                Severity.MEDIUM,
+                "Браузер скачивает файл в полном разрешении и уменьшает его при отрисовке — "
+                "трафик тратится впустую, особенно на мобильных.",
+                "Нарежьте изображения под реальные размеры отображения и подключите "
+                "через srcset с несколькими вариантами ширины.",
+                evidence=[
+                    f"{s.width}×{s.height} при показе в "
+                    f"{s.displayed_width or '?'}px — {truncate(s.url, 50)}"
+                    for s in oversized[:6]
+                ],
+            )
+
+        if skipped:
+            result.add(
+                "perf.img.unreadable",
+                f"Не удалось разобрать изображений: {skipped}",
+                Severity.INFO,
+                "Файлы битые либо в формате, который Pillow не открывает (например, AVIF).",
+                "",
+            )
+        return True
+
+
+def _displayed_widths(ctx: AuditContext) -> dict[str, int]:
+    """Ширина отображения из атрибута width — нужна, чтобы поймать избыточные картинки."""
+    widths: dict[str, int] = {}
+    for img in ctx.soup.find_all("img"):
+        raw = str(img.get("width") or "").strip().rstrip("px")
+        src = img.get("src") or img.get("data-src") or ""
+        url = abs_url(ctx.url, src)
+        if url and raw.isdigit():
+            widths[url] = int(raw)
+    return widths
