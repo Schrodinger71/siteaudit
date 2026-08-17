@@ -20,7 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 browser = ["playwright>=1.44"]
 images = ["pillow>=10.0"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pillow>=10.0"]
 
 [project.scripts]
 siteaudit = "siteaudit.cli:main"
