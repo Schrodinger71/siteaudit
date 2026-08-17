@@ -1,5 +1,6 @@
 """Модули аудита."""
 
+from .a11y import A11yModule
 from .base import Module
 from .crawl import CrawlModule
 from .dns_mail import DnsModule
@@ -13,6 +14,7 @@ ALL_MODULES: list[type[Module]] = [
     SeoModule,
     PerformanceModule,
     VitalsModule,
+    A11yModule,
     SecurityModule,
     DnsModule,
     CrawlModule,
@@ -24,6 +26,7 @@ __all__ = [
     "SeoModule",
     "PerformanceModule",
     "VitalsModule",
+    "A11yModule",
     "SecurityModule",
     "DnsModule",
     "CrawlModule",
