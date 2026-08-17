@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 
 from ..context import AuditContext
+from ..fetcher import MOBILE_UA
 from ..models import ModuleResult, Severity
 from ..utils import human_ms, human_size, truncate
 from .base import Module
@@ -23,6 +24,27 @@ INSTALL_HINT = (
     "Установите браузерный движок: `pip install playwright` "
     "и затем `playwright install chromium`."
 )
+
+#: Профили устройств для замера. Мобильный — Pixel 7 в портретной ориентации.
+DESKTOP = {
+    "key": "desktop",
+    "name": "десктоп",
+    "viewport": {"width": 1366, "height": 768},
+    "scale": 1.0,
+    "touch": False,
+    "user_agent": None,
+}
+MOBILE = {
+    "key": "mobile",
+    "name": "мобильный",
+    "viewport": {"width": 393, "height": 852},
+    "scale": 3.0,
+    "touch": True,
+    "user_agent": MOBILE_UA,
+}
+
+#: Во сколько раз мобильный LCP должен превысить десктопный, чтобы это считалось находкой
+MOBILE_GAP = 1.8
 
 # Наблюдатели ставятся до навигации, иначе ранние события будут потеряны
 INIT_SCRIPT = """
@@ -93,8 +115,11 @@ class VitalsModule(Module):
             result.error = f"Playwright не установлен. {INSTALL_HINT}"
             return
 
+        # При --mobile меряем оба устройства: мобильные числа считаем основными,
+        # десктопные нужны для сравнения. Без флага хватает одного прогона.
+        profiles = [MOBILE, DESKTOP] if ctx.options.mobile else [DESKTOP]
         try:
-            data = await self._measure(ctx, async_playwright)
+            passes = await self._measure(ctx, async_playwright, profiles)
         except Exception as exc:  # noqa: BLE001 — браузер падает по многим причинам
             message = str(exc)
             if "Executable doesn't exist" in message or "playwright install" in message:
@@ -103,56 +128,124 @@ class VitalsModule(Module):
                 result.error = f"{type(exc).__name__}: {truncate(message, 200)}"
             return
 
-        metrics = data["metrics"]
+        primary_profile = profiles[0]
+        primary = passes[primary_profile["key"]]
+        metrics = primary["metrics"]
+
+        result.fact("Устройство замера", primary_profile["name"])
+        if len(profiles) > 1:
+            self._comparison(result, passes)
+
         self._vitals(result, metrics)
         self._loading(result, metrics)
         self._dom(result, metrics)
         self._rendering(ctx, result, metrics)
-        self._console(result, data["console_errors"], data["page_errors"])
+        self._console(result, primary["console_errors"], primary["page_errors"])
 
-    async def _measure(self, ctx: AuditContext, async_playwright) -> dict:
-        console_errors: list[str] = []
-        page_errors: list[str] = []
+    async def _measure(self, ctx: AuditContext, async_playwright, profiles: list[dict]) -> dict:
+        passes: dict[str, dict] = {}
+        timeout_ms = int(max(ctx.options.timeout, 30) * 1000)
 
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
-            context = await browser.new_context(
-                viewport={"width": 1366, "height": 768},
-                device_scale_factor=1,
-                ignore_https_errors=ctx.options.insecure,
-            )
-            await context.add_init_script(INIT_SCRIPT)
-            page = await context.new_page()
+            try:
+                for profile in profiles:
+                    passes[profile["key"]] = await self._one_pass(
+                        browser, ctx, profile, timeout_ms, screenshot=profile is profiles[0]
+                    )
+            finally:
+                await browser.close()
+        return passes
 
-            page.on(
-                "console",
-                lambda msg: console_errors.append(truncate(msg.text, 120))
-                if msg.type == "error"
-                else None,
-            )
-            page.on("pageerror", lambda exc: page_errors.append(truncate(str(exc), 120)))
+    async def _one_pass(
+        self, browser, ctx: AuditContext, profile: dict, timeout_ms: int, screenshot: bool
+    ) -> dict:
+        console_errors: list[str] = []
+        page_errors: list[str] = []
 
-            timeout_ms = int(max(ctx.options.timeout, 30) * 1000)
-            await page.goto(ctx.url, wait_until="load", timeout=timeout_ms)
-            # Замер строго на load + пауза. Ждать networkidle нельзя: поздние баннеры
-            # и виджеты перебивают кандидата LCP, и метрика раздувается в разы.
-            await page.wait_for_timeout(1500)
+        context = await browser.new_context(
+            viewport=profile["viewport"],
+            device_scale_factor=profile["scale"],
+            is_mobile=profile["touch"],
+            has_touch=profile["touch"],
+            user_agent=profile["user_agent"],
+            ignore_https_errors=ctx.options.insecure,
+        )
+        await context.add_init_script(INIT_SCRIPT)
+        page = await context.new_page()
 
-            metrics = await page.evaluate(COLLECT_SCRIPT)
+        page.on(
+            "console",
+            lambda msg: console_errors.append(truncate(msg.text, 120))
+            if msg.type == "error"
+            else None,
+        )
+        page.on("pageerror", lambda exc: page_errors.append(truncate(str(exc), 120)))
+
+        await page.goto(ctx.url, wait_until="load", timeout=timeout_ms)
+        # Замер строго на load + пауза. Ждать networkidle нельзя: поздние баннеры
+        # и виджеты перебивают кандидата LCP, и метрика раздувается в разы.
+        await page.wait_for_timeout(1500)
+        metrics = await page.evaluate(COLLECT_SCRIPT)
+
+        if screenshot:
             try:
                 shot = await page.screenshot(type="jpeg", quality=55, full_page=False)
                 ctx.screenshot = "data:image/jpeg;base64," + base64.b64encode(shot).decode()
             except Exception:  # noqa: BLE001 — скриншот не обязателен
                 pass
 
-            await context.close()
-            await browser.close()
-
+        await context.close()
         return {
             "metrics": metrics,
             "console_errors": console_errors,
             "page_errors": page_errors,
         }
+
+    def _comparison(self, result: ModuleResult, passes: dict) -> None:
+        """Сравнение мобильного прогона с десктопным."""
+        mobile = passes["mobile"]["metrics"]
+        desktop = passes["desktop"]["metrics"]
+
+        for label, key, fmt in (
+            ("LCP", "lcp", lambda v: human_ms(v / 1000)),
+            ("CLS", "cls", lambda v: f"{v:.3f}"),
+            ("TBT", "tbt", lambda v: f"{v:.0f} мс"),
+            ("Передано по сети", "transfer", human_size),
+        ):
+            m, d = mobile.get(key) or 0, desktop.get(key) or 0
+            result.fact(f"{label}: моб. / десктоп", f"{fmt(m)} / {fmt(d)}")
+
+        m_lcp = (mobile.get("lcp") or 0) / 1000
+        d_lcp = (desktop.get("lcp") or 0) / 1000
+        if d_lcp and m_lcp > d_lcp * MOBILE_GAP and m_lcp > LCP_GOOD:
+            result.add(
+                "vitals.mobile.slower",
+                f"Мобильная версия грузится в {m_lcp / d_lcp:.1f} раза дольше десктопной",
+                Severity.HIGH,
+                f"LCP: {human_ms(m_lcp)} против {human_ms(d_lcp)}. "
+                "Google оценивает сайт по мобильной версии.",
+                "Проверьте, не отдаются ли мобильным те же тяжёлые изображения и скрипты, "
+                "что и десктопу. Настройте srcset под мобильные разрешения и уберите "
+                "с мобильной версии то, что там не показывается.",
+            )
+
+        m_bytes = mobile.get("transfer") or 0
+        d_bytes = desktop.get("transfer") or 0
+        if d_bytes and m_bytes >= d_bytes * 0.95:
+            result.add(
+                "vitals.mobile.sameweight",
+                "Мобильным отдаётся столько же данных, сколько десктопу",
+                Severity.MEDIUM,
+                f"{human_size(m_bytes)} против {human_size(d_bytes)} — экономии нет.",
+                "Адаптивные изображения через srcset/sizes и отказ от загрузки "
+                "десктопных виджетов на мобильных обычно срезают вес на треть и больше.",
+            )
+        elif d_bytes:
+            result.ok(
+                "vitals.mobile.weight",
+                f"Мобильным отдаётся меньше данных ({human_size(m_bytes)} против {human_size(d_bytes)})",
+            )
 
     # ------------------------------------------------------------- метрики
 
