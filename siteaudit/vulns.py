@@ -31,6 +31,9 @@ PACKAGIST_PACKAGES: dict[str, str] = {
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MODERATE": 2, "MEDIUM": 2, "LOW": 1}
 
+#: Технологии, которые вообще имеет смысл спрашивать у OSV.
+CHECKABLE = set(NPM_PACKAGES) | set(PACKAGIST_PACKAGES)
+
 
 class Vulnerability:
     __slots__ = ("id", "summary", "severity", "aliases", "url")
