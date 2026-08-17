@@ -212,6 +212,9 @@ tempCodeRunnerFile.py
 # siteaudit: сгенерированные отчёты, скриншоты и базы истории прогонов
 out/
 *.db
+# отчёты, сохранённые в корень проекта через --html/--json
+/*.html
+/*.json
 
 
 # Marimo
