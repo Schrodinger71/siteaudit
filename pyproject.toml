@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "siteaudit"
+version = "0.1.0"
+description = "Полный аудит сайта: SEO, производительность, безопасность, определение движка"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx[http2]>=0.27",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "rich>=13.7",
+    "brotli>=1.1",
+]
+
+[project.scripts]
+siteaudit = "siteaudit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["siteaudit*"]

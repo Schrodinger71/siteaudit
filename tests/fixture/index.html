@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<title>Тест</title>
+<meta name="generator" content="WordPress 5.9">
+<script src="/wp-includes/js/jquery/jquery.min.js?ver=1.11.3"></script>
+<link rel="stylesheet" href="/wp-content/themes/demo/style.css">
+<style>.a{color:red}</style>
+</head>
+<body>
+<h1>Первый</h1>
+<h1>Второй</h1>
+<h4>Пропуск уровня</h4>
+<img src="/img/photo.jpg">
+<img src="http://example.com/insecure.png" alt="mixed">
+<form action="http://example.com/login" method="post">
+  <input type="password" name="pass">
+  <button>Войти</button>
+</form>
+<a href="/broken-page">битая ссылка</a>
+<a href="https://example.com" target="_blank">внешняя</a>
+<!-- TODO: убрать debug api_key перед релизом -->
+<script>var api_key = "abcdefghijklmnopqrstuvwxyz123456";</script>
+</body>
+</html>
