@@ -10,7 +10,7 @@ from urllib.robotparser import RobotFileParser
 from bs4 import BeautifulSoup
 
 from .fetcher import Fetched, Fetcher
-from .utils import abs_url, same_site
+from .utils import abs_url, has_rel, same_site
 
 # Расширения, которые незачем скачивать и парсить как страницы
 SKIP_EXTENSIONS = {
@@ -137,8 +137,10 @@ class Crawler:
 
         page.h1_count = len(soup.find_all("h1"))
 
-        canonical = soup.find("link", rel=lambda v: v and "canonical" in [x.lower() for x in v])
-        if canonical and canonical.get("href"):
+        canonical = next(
+            (t for t in soup.find_all("link", href=True) if has_rel(t, "canonical")), None
+        )
+        if canonical:
             page.canonical = abs_url(resp.url, canonical["href"])
 
         robots_meta = soup.find("meta", attrs={"name": re.compile(r"^robots$", re.I)})

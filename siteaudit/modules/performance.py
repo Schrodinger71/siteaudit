@@ -8,7 +8,7 @@ import re
 from ..context import AuditContext
 from ..fetcher import Fetched
 from ..models import ModuleResult, Severity
-from ..utils import counted, human_ms, human_size, pct, truncate
+from ..utils import counted, has_rel, human_ms, human_size, pct, truncate
 from .base import Module
 
 TTFB_GOOD, TTFB_OK = 0.2, 0.6
@@ -172,9 +172,7 @@ class PerformanceModule(Module):
             for s in head.find_all("script", src=True)
             if not s.has_attr("async") and not s.has_attr("defer") and s.get("type") != "module"
         ]
-        css_links = head.find_all(
-            "link", rel=lambda v: v and "stylesheet" in [x.lower() for x in v]
-        )
+        css_links = [t for t in head.find_all("link") if has_rel(t, "stylesheet")]
         result.fact("Блокирующих скриптов в <head>", len(blocking_js))
         result.fact("CSS-файлов в <head>", len(css_links))
 
