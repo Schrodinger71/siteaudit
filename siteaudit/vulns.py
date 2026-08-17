@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from typing import Any
 
 OSV_URL = "https://api.osv.dev/v1/query"
@@ -68,8 +69,12 @@ def _from_cvss(vector: str) -> str:
     return "MEDIUM"
 
 
-async def lookup(fetcher, name: str, version: str) -> list[Vulnerability]:
-    """Спрашивает у OSV.dev уязвимости конкретной версии пакета."""
+async def lookup(fetcher, name: str, version: str) -> list[Vulnerability] | None:
+    """Уязвимости конкретной версии пакета.
+
+    Пустой список означает «проверено, чисто», а None — «проверить не удалось».
+    Их нельзя путать: иначе недоступный OSV выглядел бы как отсутствие проблем.
+    """
     if name in NPM_PACKAGES:
         package, ecosystem = NPM_PACKAGES[name], "npm"
     elif name in PACKAGIST_PACKAGES:
@@ -79,7 +84,9 @@ async def lookup(fetcher, name: str, version: str) -> list[Vulnerability]:
 
     payload = {"version": version, "package": {"name": package, "ecosystem": ecosystem}}
     data = await fetcher.post_json(OSV_URL, payload)
-    if not data or not isinstance(data.get("vulns"), list):
+    if data is None:
+        return None
+    if not isinstance(data.get("vulns"), list):
         return []
 
     vulns = [Vulnerability(v) for v in data["vulns"] if isinstance(v, dict)]
@@ -87,22 +94,34 @@ async def lookup(fetcher, name: str, version: str) -> list[Vulnerability]:
     return vulns
 
 
-async def lookup_many(fetcher, techs) -> dict[str, list[Vulnerability]]:
-    """Проверяет все технологии с известной версией; сетевые сбои просто игнорирует."""
+@dataclass
+class LookupResult:
+    """Итог сверки с OSV: что найдено, сколько проверено и сколько сорвалось."""
+
+    found: dict[str, list[Vulnerability]] = field(default_factory=dict)
+    checked: int = 0
+    failed: int = 0
+
+
+async def lookup_many(fetcher, techs) -> LookupResult:
     targets = [
         t
         for t in techs
         if t.version and (t.name in NPM_PACKAGES or t.name in PACKAGIST_PACKAGES)
     ]
     if not targets:
-        return {}
+        return LookupResult()
 
     results = await asyncio.gather(
         *[lookup(fetcher, t.name, t.version) for t in targets],
         return_exceptions=True,
     )
-    out: dict[str, list[Vulnerability]] = {}
+    out = LookupResult()
     for tech, res in zip(targets, results):
-        if isinstance(res, list) and res:
-            out[tech.name] = res
+        if res is None or isinstance(res, BaseException):
+            out.failed += 1
+            continue
+        out.checked += 1
+        if res:
+            out.found[tech.name] = res
     return out

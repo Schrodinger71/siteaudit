@@ -7,7 +7,7 @@ import re
 from ..context import AuditContext
 from ..models import ModuleResult, Severity, Tech
 from ..signatures import OUTDATED_THRESHOLDS, SIGNATURES
-from ..utils import truncate
+from ..utils import counted, truncate
 from ..vulns import lookup_many
 from .base import Module
 
@@ -77,17 +77,28 @@ class TechModule(Module):
         self, ctx: AuditContext, result: ModuleResult, techs: list[Tech]
     ) -> set[str]:
         """Сверяет найденные версии с базой уязвимостей OSV.dev."""
-        found = await lookup_many(ctx.fetcher, techs)
-        if not found:
-            checked = [t for t in techs if t.version]
-            if checked:
+        outcome = await lookup_many(ctx.fetcher, techs)
+
+        if outcome.failed:
+            result.add(
+                "tech.cve.unavailable",
+                f"Не удалось проверить по базе уязвимостей "
+                f"{counted(outcome.failed, 'версию', 'версии', 'версий')}",
+                Severity.INFO,
+                "Сервис osv.dev не ответил. Это не значит, что уязвимостей нет — "
+                "проверка просто не состоялась.",
+                "Повторите запуск позже или отключите проверку флагом --no-cve.",
+            )
+        if not outcome.found:
+            if outcome.checked:
                 result.ok(
                     "tech.cve.clean",
-                    f"Известных уязвимостей не найдено ({len(checked)} версий проверено)",
+                    f"Известных уязвимостей не найдено "
+                    f"({counted(outcome.checked, 'версия', 'версии', 'версий')} проверено)",
                 )
             return set()
 
-        for name, vulns in found.items():
+        for name, vulns in outcome.found.items():
             tech = next((t for t in techs if t.name == name), None)
             version = tech.version if tech else "?"
             worst = vulns[0].severity
@@ -104,7 +115,7 @@ class TechModule(Module):
                     f"{v.label} [{v.severity}] {truncate(v.summary, 70)}" for v in vulns[:6]
                 ],
             )
-        return set(found)
+        return set(outcome.found)
 
     # ------------------------------------------------------------------ вывод
 

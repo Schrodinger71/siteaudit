@@ -71,6 +71,12 @@ class DnsModule(Module):
             _query(resolver, f"{_noise()}.{domain}", "A"),
         )
 
+        # Сбой резолвера нельзя выдавать за отсутствие записей: домен без A —
+        # это критичная находка, а недоступный DNS — просто несостоявшаяся проверка.
+        if a.error and not a.values:
+            result.error = f"DNS-резолвер недоступен: {a.error}"
+            return
+
         self._addresses(result, a, aaaa)
         self._nameservers(result, ns)
         has_mail = self._mx(result, mx)
