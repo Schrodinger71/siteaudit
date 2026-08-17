@@ -17,8 +17,17 @@ dependencies = [
     "dnspython>=2.6",
 ]
 
+[project.optional-dependencies]
+browser = ["playwright>=1.44"]
+images = ["pillow>=10.0"]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 siteaudit = "siteaudit.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
 
 [tool.setuptools.packages.find]
 include = ["siteaudit*"]
