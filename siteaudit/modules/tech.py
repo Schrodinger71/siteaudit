@@ -8,7 +8,7 @@ from ..context import AuditContext
 from ..models import ModuleResult, Severity, Tech
 from ..signatures import OUTDATED_THRESHOLDS, SIGNATURES
 from ..utils import counted, truncate
-from ..vulns import lookup_many
+from ..vulns import CHECKABLE, lookup_many
 from .base import Module
 
 
@@ -70,7 +70,11 @@ class TechModule(Module):
 
         # Сначала CVE: если по технологии есть конкретные уязвимости, общее
         # предупреждение «версия устарела» становится лишним шумом.
-        vulnerable = await self._cve(ctx, result, techs) if ctx.options.check_cve else set()
+        if ctx.options.check_cve:
+            vulnerable = await self._cve(ctx, result, techs)
+        else:
+            vulnerable = set()
+            result.fact("Проверка уязвимостей", "отключена флагом --no-cve")
         self._report(ctx, result, techs, vulnerable)
 
     async def _cve(
@@ -78,6 +82,7 @@ class TechModule(Module):
     ) -> set[str]:
         """Сверяет найденные версии с базой уязвимостей OSV.dev."""
         outcome = await lookup_many(ctx.fetcher, techs)
+        self._cve_fact(result, techs, outcome)
 
         if outcome.failed:
             result.add(
@@ -116,6 +121,34 @@ class TechModule(Module):
                 ],
             )
         return set(outcome.found)
+
+    @staticmethod
+    def _cve_fact(result: ModuleResult, techs: list[Tech], outcome) -> None:
+        """Статус сверки с базой уязвимостей выводится всегда.
+
+        Иначе «сверять было нечего» выглядит в отчёте так же, как «не сверяли».
+        """
+        if outcome.found:
+            total = sum(len(v) for v in outcome.found.values())
+            status = (
+                f"найдено {counted(total, 'уязвимость', 'уязвимости', 'уязвимостей')} "
+                f"в {counted(len(outcome.found), 'компоненте', 'компонентах', 'компонентах')}"
+            )
+        elif outcome.checked:
+            status = (
+                f"{counted(outcome.checked, 'версия', 'версии', 'версий')} сверено с OSV.dev, "
+                "известных уязвимостей нет"
+            )
+        else:
+            blind = sorted({t.name for t in techs if t.name in CHECKABLE and not t.version})
+            if blind:
+                status = "сверять нечего: не удалось определить версию — " + ", ".join(blind)
+            else:
+                status = "сверять нечего: библиотек с известными версиями не найдено"
+
+        if outcome.failed:
+            status += f"; не удалось проверить: {outcome.failed}"
+        result.fact("Проверка уязвимостей", status)
 
     # ------------------------------------------------------------------ вывод
 
