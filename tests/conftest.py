@@ -20,6 +20,14 @@ FIXTURES = Path(__file__).parent
 PLACEHOLDER = "{{BASE}}"
 TEXT_SUFFIXES = {".html", ".xml", ".txt", ".css", ".js", ".json"}
 
+#: Файлы-приманки, которые нельзя хранить в репозитории под настоящими именами:
+#: `.env` глушится через .gitignore, а вложенный каталог `.git` git не версионирует
+#: в принципе. Держим их под безопасными именами и раскладываем при подъёме стенда.
+BAIT_FILES = {
+    "samples/dotenv": ".env",
+    "samples/git-HEAD": ".git/HEAD",
+}
+
 
 def _free_port() -> int:
     with socket.socket() as sock:
@@ -28,8 +36,20 @@ def _free_port() -> int:
 
 
 def _materialize(source: Path, target: Path, base: str) -> None:
-    """Копирует стенд и подставляет базовый URL вместо плейсхолдера."""
+    """Копирует стенд, раскладывает приманки и подставляет базовый URL."""
     shutil.copytree(source, target, dirs_exist_ok=True)
+
+    samples = target / "samples"
+    for sample, real_name in BAIT_FILES.items():
+        origin = target / sample
+        if not origin.exists():
+            continue
+        destination = target / real_name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(origin, destination)
+    if samples.is_dir():
+        shutil.rmtree(samples)
+
     for path in target.rglob("*"):
         if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
             text = path.read_text(encoding="utf-8")
