@@ -1,8 +1,10 @@
 name: tests
 
+# push только по основным веткам: иначе коммит в ветку с открытым PR
+# запускает прогон дважды — один раз от push, второй от pull_request.
 on:
   push:
-    branches: ["**"]
+    branches: [master, main]
   pull_request:
   workflow_dispatch:
 
