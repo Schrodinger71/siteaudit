@@ -263,6 +263,10 @@ python -m siteaudit мойсайт.ру --history-list
 
 ## Примеры
 
+```bash
+python -m siteaudit мойсайт.ру --crawl 50 --browser --html отчет.html
+```
+
 Проверка нескольких сайтов сразу:
 
 ```bash
@@ -279,10 +283,6 @@ python -m siteaudit example.com --only security -v
 
 ```bash
 python -m siteaudit https://example.com --quiet --json report.json --fail-under 70
-```
-
-```bash
-siteaudit мойсайт.ру --crawl 50 --browser --html отчет.html
 ```
 
 ## Ограничения
