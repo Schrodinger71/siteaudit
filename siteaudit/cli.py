@@ -24,6 +24,10 @@ EPILOG = """\
   siteaudit example.com --only security,performance -v
   siteaudit example.com --crawl 20 --assets 80
   siteaudit example.com --browser
+
+Полная проверка своего сайта (все модули сразу):
+  siteaudit мойсайт.ру --crawl 50 --browser --mobile --html отчет.html
+
   siteaudit example.com --history-list
   siteaudit site1.ru site2.ru --safe
 
