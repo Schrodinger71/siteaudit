@@ -27,6 +27,9 @@ class Options:
     check_cve: bool = True
     browser: bool = False
     mobile: bool = False
+    #: Версии, заданные вручную: {имя технологии: версия}. Нужны, когда сборщик
+    #: вырезал версию из разметки, а владелец сайта её знает.
+    versions: dict = field(default_factory=dict)
     user_agent: str | None = None
 
 

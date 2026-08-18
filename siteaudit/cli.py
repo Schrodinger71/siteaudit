@@ -71,6 +71,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="не обращаться к osv.dev за списком уязвимостей найденных версий",
     )
     p.add_argument("--insecure", action="store_true", help="не проверять TLS-сертификат при запросах")
+    p.add_argument(
+        "--set-version",
+        action="append",
+        metavar="ИМЯ=ВЕРСИЯ",
+        default=[],
+        help="задать версию вручную, если её не удалось определить из разметки "
+        "(например: --set-version React=18.2.0). Имя — как в отчёте. "
+        "Флаг можно повторять",
+    )
     p.add_argument("--user-agent", help="свой User-Agent")
     p.add_argument(
         "--fail-under",
@@ -97,6 +106,21 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _parse_versions(pairs: list[str]) -> dict[str, str]:
+    """Разбирает значения --set-version вида «React=18.2.0»."""
+    versions: dict[str, str] = {}
+    for pair in pairs:
+        name, sep, version = pair.partition("=")
+        name, version = name.strip(), version.strip()
+        if not sep or not name or not version:
+            raise ValueError(
+                f"Не разобрать --set-version «{pair}». Ожидается ИМЯ=ВЕРСИЯ, "
+                "например React=18.2.0"
+            )
+        versions[name] = version
+    return versions
+
+
 def _prepare(raw: str) -> Path:
     path = Path(raw).expanduser()
     if path.parent and not path.parent.exists():
@@ -121,6 +145,12 @@ def main(argv: list[str] | None = None) -> int:
         err.print("[red]Не указан ни один адрес.[/red] Пример: siteaudit example.com")
         return 2
 
+    try:
+        versions = _parse_versions(args.set_version)
+    except ValueError as exc:
+        err.print(f"[red]{exc}[/red]")
+        return 2
+
     options = Options(
         timeout=args.timeout,
         concurrency=max(1, args.concurrency),
@@ -133,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         check_cve=not args.no_cve,
         browser=args.browser,
         mobile=args.mobile,
+        versions=versions,
         user_agent=args.user_agent,
     )
     modules = select_modules(
