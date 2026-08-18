@@ -122,6 +122,17 @@ class Fetcher:
             return await self.get(url, method="GET", cache=cache)
         return res
 
+    async def get_json(self, url: str) -> dict | None:
+        """GET с JSON-ответом. Возвращает None при любой сетевой ошибке или отказе."""
+        async with self._sem:
+            try:
+                resp = await self._client.get(url, headers={"Accept": "application/json"})
+                if resp.status_code != 200:
+                    return None
+                return resp.json()
+            except Exception:  # noqa: BLE001 — внешний сервис не должен ронять аудит
+                return None
+
     async def post_json(self, url: str, payload: dict) -> dict | None:
         """POST с JSON для внешних API. Возвращает None при любой сетевой ошибке."""
         async with self._sem:

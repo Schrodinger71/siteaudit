@@ -8,7 +8,7 @@ from ..context import AuditContext
 from ..models import ModuleResult, Severity, Tech
 from ..signatures import OUTDATED_THRESHOLDS, SIGNATURES
 from ..utils import counted, truncate
-from ..vulns import CHECKABLE, lookup_many
+from ..vulns import CHECKABLE, NVD_CPE, lookup_many
 from .base import Module
 
 
@@ -65,6 +65,8 @@ class TechModule(Module):
                             evidence=[f"подразумевается наличием «{sig['name']}»"],
                         )
 
+        self._apply_manual_versions(ctx, detected)
+
         techs = sorted(detected.values(), key=lambda t: (-t.confidence, t.category, t.name))
         ctx.techs = techs
 
@@ -90,7 +92,7 @@ class TechModule(Module):
                 f"Не удалось проверить по базе уязвимостей "
                 f"{counted(outcome.failed, 'версию', 'версии', 'версий')}",
                 Severity.INFO,
-                "Сервис osv.dev не ответил. Это не значит, что уязвимостей нет — "
+                "База уязвимостей не ответила. Это не значит, что уязвимостей нет — "
                 "проверка просто не состоялась.",
                 "Повторите запуск позже или отключите проверку флагом --no-cve.",
             )
@@ -108,11 +110,15 @@ class TechModule(Module):
             version = tech.version if tech else "?"
             worst = vulns[0].severity
             severity = Severity.CRITICAL if worst == "CRITICAL" else Severity.HIGH
+            source = "NVD" if name in NVD_CPE else "OSV.dev"
+            manual = tech and tech.evidence and "вручную" in tech.evidence[0]
+            origin = " (версия задана вручную)" if manual else ""
             result.add(
                 f"tech.cve.{name.lower()}",
                 f"{name} {version}: известные уязвимости ({len(vulns)})",
                 severity,
-                f"Версия числится уязвимой в базе OSV.dev. Максимальная критичность: {worst}.",
+                f"Версия числится уязвимой в базе {source}{origin}. "
+                f"Максимальная критичность: {worst}.",
                 f"Обновите {name} до последней версии. Если обновление ломает совместимость, "
                 "проверьте, эксплуатируется ли уязвимость в вашем сценарии, и закройте "
                 "её обходным путём (WAF, CSP, отключение уязвимого компонента).",
@@ -121,6 +127,31 @@ class TechModule(Module):
                 ],
             )
         return set(outcome.found)
+
+    @staticmethod
+    def _apply_manual_versions(ctx: AuditContext, detected: dict[str, Tech]) -> None:
+        """Версии, названные владельцем сайта, важнее того, что удалось выскрести.
+
+        Современные сборщики вырезают версии из имён файлов, и определить их из
+        разметки невозможно. Если версию знает владелец — берём её и сверяем
+        с базами уязвимостей наравне с найденными автоматически.
+        """
+        by_lower = {name.lower(): name for name in detected}
+        for raw_name, version in (ctx.options.versions or {}).items():
+            name = by_lower.get(raw_name.lower(), raw_name)
+            note = "версия указана вручную"
+            if name in detected:
+                tech = detected[name]
+                tech.version = version
+                tech.evidence = [note, *tech.evidence][:4]
+            else:
+                detected[name] = Tech(
+                    name=name,
+                    category=_category_of(name),
+                    version=version,
+                    confidence=100,
+                    evidence=[note],
+                )
 
     @staticmethod
     def _cve_fact(result: ModuleResult, techs: list[Tech], outcome) -> None:
@@ -136,18 +167,23 @@ class TechModule(Module):
             )
         elif outcome.checked:
             status = (
-                f"{counted(outcome.checked, 'версия', 'версии', 'версий')} сверено с OSV.dev, "
-                "известных уязвимостей нет"
+                f"сверено версий: {outcome.checked}, известных уязвимостей нет"
             )
         else:
             blind = sorted({t.name for t in techs if t.name in CHECKABLE and not t.version})
             if blind:
-                status = "сверять нечего: не удалось определить версию — " + ", ".join(blind)
+                status = (
+                    "сверять нечего: не удалось определить версию — "
+                    + ", ".join(blind)
+                    + f". Задайте вручную: --set-version {blind[0]}=версия"
+                )
             else:
                 status = "сверять нечего: библиотек с известными версиями не найдено"
 
         if outcome.failed:
             status += f"; не удалось проверить: {outcome.failed}"
+        if outcome.sources:
+            status += f" (источники: {', '.join(sorted(outcome.sources))})"
         result.fact("Проверка уязвимостей", status)
 
     # ------------------------------------------------------------------ вывод
