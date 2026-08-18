@@ -116,9 +116,15 @@ class Fetcher:
         return result
 
     async def head(self, url: str, cache: bool = True) -> Fetched:
-        """HEAD с откатом на GET: часть серверов и CDN отвечают на HEAD отказом."""
+        """HEAD с откатом на GET.
+
+        Поддержка HEAD в интернете дырявая: ВКонтакте отвечает на него 418,
+        часть CDN — 403 или 405. Поэтому доверяем только явным «нет такой
+        страницы» (404 и 410) и успешным ответам, всё остальное перепроверяем
+        полноценным GET.
+        """
         res = await self.get(url, method="HEAD", cache=cache, read_body=False)
-        if res.error or res.status in (403, 405, 501):
+        if res.error or (res.status >= 400 and res.status not in (404, 410)):
             return await self.get(url, method="GET", cache=cache)
         return res
 

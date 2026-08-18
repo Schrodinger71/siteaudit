@@ -137,6 +137,25 @@ class TestDirtyStandSeo:
     def test_score_is_low(self, dirty_seo):
         assert dirty_seo.score < 80
 
+    def test_only_real_404_counted_as_broken(self, dirty_seo):
+        """403 и 418 — защита от роботов, а не битая ссылка."""
+        broken = next(f for f in dirty_seo.problems if f.id == "seo.links.broken")
+        assert len(broken.evidence) == 1
+        assert "broken-page" in broken.evidence[0]
+        assert not any("guarded" in e for e in broken.evidence)
+
+    def test_guarded_links_reported_separately(self, dirty_seo):
+        guarded = next(f for f in dirty_seo.findings if f.id == "seo.links.guarded")
+        assert guarded.severity is Severity.INFO
+        assert any("guarded-403" in e for e in guarded.evidence)
+
+    def test_head_rejecting_link_is_not_broken(self, dirty_seo):
+        """ВКонтакте отвечает 418 на HEAD: откат на GET обязан это спасти."""
+        all_evidence = " ".join(
+            e for f in dirty_seo.findings if f.id.startswith("seo.links") for e in f.evidence
+        )
+        assert "guarded-418" not in all_evidence
+
 
 class TestDirtyStandSecurity:
     def test_http_without_tls(self, dirty_security):

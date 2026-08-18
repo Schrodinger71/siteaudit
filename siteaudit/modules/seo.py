@@ -11,7 +11,17 @@ from bs4 import BeautifulSoup
 
 from ..context import AuditContext
 from ..models import ModuleResult, Severity
-from ..utils import abs_url, counted, has_icon_rel, has_rel, pct, similarity, truncate
+from ..utils import (
+    abs_url,
+    classify_link,
+    counted,
+    has_icon_rel,
+    has_rel,
+    host_of,
+    pct,
+    similarity,
+    truncate,
+)
 from .base import Module
 
 TITLE_MIN, TITLE_MAX = 30, 65
@@ -670,25 +680,52 @@ class SeoModule(Module):
         if not sample:
             return
         responses = await asyncio.gather(*[ctx.fetcher.head(u) for u in sample])
-        broken = [(u, r) for u, r in zip(sample, responses) if r.error or r.status >= 400]
+        internal_set = set(internal)
+
+        broken: list[tuple[str, object]] = []
+        guarded: list[tuple[str, object]] = []
+        for url, resp in zip(sample, responses):
+            verdict = classify_link(resp.status, resp.error)
+            if verdict == "broken":
+                broken.append((url, resp))
+            elif verdict == "guarded":
+                guarded.append((url, resp))
+
         if broken:
+            inside = sum(1 for u, _ in broken if u in internal_set)
+            detail = "Битые ссылки тратят краулинговый бюджет и раздражают пользователей."
+            if inside:
+                detail += f" Из них внутренних: {inside} — это важнее внешних."
             result.add(
                 "seo.links.broken",
                 f"Битые ссылки: {len(broken)} из {len(sample)} проверенных",
                 Severity.HIGH if len(broken) > 2 else Severity.MEDIUM,
-                "Битые ссылки тратят краулинговый бюджет и раздражают пользователей.",
+                detail,
                 "Исправьте адреса или уберите ссылки. Проверьте, нет ли битых ссылок "
                 "в шаблоне — тогда они на каждой странице сайта.",
                 evidence=[
-                    f"{r.status if not r.error else 'ошибка'} — {truncate(u, 70)}"
-                    for u, r in broken[:8]
+                    f"{r.status or 'нет ответа'} — {truncate(u, 70)}" for u, r in broken[:8]
                 ],
             )
-        else:
-            result.ok(
-                "seo.links",
-                f"Проверено {counted(len(sample), 'ссылка', 'ссылки', 'ссылок')} — битых нет",
+        elif sample:
+            result.ok("seo.links", f"Проверено ссылок: {len(sample)}, битых нет")
+
+        if guarded:
+            hosts = sorted({host_of(u) for u, _ in guarded})
+            result.add(
+                "seo.links.guarded",
+                f"Не удалось проверить ссылок: {len(guarded)}",
+                Severity.INFO,
+                "Эти адреса ответили отказом на автоматический запрос — обычно так "
+                "работает защита от роботов, а в браузере ссылка открывается нормально. "
+                f"Домены: {truncate(', '.join(hosts), 120)}.",
+                "Проверять такие ссылки нужно вручную. Битыми они не считаются "
+                "и на оценку не влияют.",
+                evidence=[
+                    f"{r.status or 'нет ответа'} — {truncate(u, 70)}" for u, r in guarded[:6]
+                ],
             )
+
 
 
 def _extract_types(data) -> list[str]:

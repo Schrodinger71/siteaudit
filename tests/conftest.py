@@ -58,10 +58,42 @@ def _materialize(source: Path, target: Path, base: str) -> None:
 
 
 class _QuietHandler(SimpleHTTPRequestHandler):
-    """Тот же статический сервер, но без логов в stderr на каждый запрос."""
+    """Статический сервер без логов, умеющий изображать защиту от роботов.
+
+    /guarded-403 отвечает отказом всегда, /guarded-418 — только на HEAD, как это
+    делает ВКонтакте. Обе ссылки рабочие, и инструмент не должен звать их битыми.
+    """
 
     def log_message(self, fmt, *args):  # noqa: A003 — сигнатура задана базовым классом
         pass
+
+    def _guard(self) -> bool:
+        path = self.path.split("?", 1)[0]
+        if path == "/guarded-403":
+            self.send_error(403, "Forbidden")
+            return True
+        if path == "/guarded-418" and self.command == "HEAD":
+            self.send_response(418)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        if path == "/guarded-418":
+            body = b"<!doctype html><title>Guarded</title><h1>Guarded</h1>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+        return False
+
+    def do_GET(self):  # noqa: N802 — имя задано базовым классом
+        if not self._guard():
+            super().do_GET()
+
+    def do_HEAD(self):  # noqa: N802 — имя задано базовым классом
+        if not self._guard():
+            super().do_HEAD()
 
 
 def _serve(directory: Path, port: int) -> ThreadingHTTPServer:

@@ -147,3 +147,30 @@ def similarity(a: str, b: str) -> float:
     if not sa or not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
+
+
+#: Ответы, однозначно означающие «страницы нет».
+BROKEN_STATUSES = frozenset({404, 410})
+
+#: Ответы защиты от роботов и ограничений доступа. Ссылка при этом рабочая:
+#: Яндекс.Карты отдают 403 любому не-браузеру, ВКонтакте — 418 на HEAD,
+#: 999 исторически отдаёт LinkedIn. Считать это битой ссылкой нельзя.
+GUARDED_STATUSES = frozenset({401, 403, 405, 406, 418, 423, 429, 451, 503, 999})
+
+
+def classify_link(status: int, error: str | None) -> str:
+    """«broken» — страницы нет, «guarded» — проверить не дали, «ok» — жива."""
+    if error:
+        # Несуществующий домен — это действительно битая ссылка, а таймаут
+        # или обрыв соединения могут быть случайными.
+        lowered = error.lower()
+        if "nameresolution" in lowered or "getaddrinfo" in lowered or "[errno 11001]" in lowered:
+            return "broken"
+        return "guarded"
+    if status in BROKEN_STATUSES:
+        return "broken"
+    if status in GUARDED_STATUSES or 500 <= status < 600:
+        return "guarded"
+    if status >= 400:
+        return "broken"
+    return "ok"
