@@ -341,7 +341,7 @@ class SeoModule(Module):
         if no_alt:
             share = pct(len(no_alt), len(imgs))
             severity = Severity.MEDIUM if share > 30 else Severity.LOW
-            samples = [truncate(i.get("src", "") or i.get("data-src", ""), 70) for i in no_alt[:5]]
+            samples = [truncate(i.get("src", "") or i.get("data-src", "")) for i in no_alt[:5]]
             result.add(
                 "seo.img.alt",
                 f"У {len(no_alt)} из {len(imgs)} изображений нет alt ({share:.0f}%)",
