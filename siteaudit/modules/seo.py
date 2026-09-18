@@ -66,7 +66,7 @@ class SeoModule(Module):
     def _title(self, ctx: AuditContext, result: ModuleResult) -> None:
         tags = ctx.soup.find_all("title")
         title = tags[0].get_text(strip=True) if tags else ""
-        result.fact("Title", truncate(title, 90) or "отсутствует")
+        result.fact("Title", truncate(title) or "отсутствует")
         result.fact("Длина title", f"{len(title)} симв." if title else "0")
 
         if not title:
@@ -83,7 +83,7 @@ class SeoModule(Module):
                 "seo.title.short",
                 f"Слишком короткий title ({len(title)} симв.)",
                 Severity.MEDIUM,
-                f"«{truncate(title, 80)}»",
+                f"«{truncate(title)}»",
                 f"Расширьте до {TITLE_MIN}–{TITLE_MAX} символов: добавьте уточняющие "
                 "слова, гео или УТП. Короткий title теряет охват по длинным запросам.",
             )
@@ -92,7 +92,7 @@ class SeoModule(Module):
                 "seo.title.long",
                 f"Слишком длинный title ({len(title)} симв.)",
                 Severity.LOW,
-                f"«{truncate(title, 100)}»",
+                f"«{truncate(title)}»",
                 f"Сократите до {TITLE_MAX} символов — в выдаче хвост всё равно обрежется многоточием.",
             )
         else:
@@ -109,7 +109,7 @@ class SeoModule(Module):
 
     def _description(self, ctx: AuditContext, result: ModuleResult) -> None:
         desc = ctx.meta("description") or ""
-        result.fact("Description", truncate(desc, 90) or "отсутствует")
+        result.fact("Description", truncate(desc) or "отсутствует")
 
         if not desc:
             result.add(
@@ -125,7 +125,7 @@ class SeoModule(Module):
                 "seo.description.short",
                 f"Короткий description ({len(desc)} симв.)",
                 Severity.LOW,
-                f"«{truncate(desc, 100)}»",
+                f"«{truncate(desc)}»",
                 f"Доведите до {DESC_MIN}–{DESC_MAX} символов, чтобы занять всю площадь сниппета.",
             )
         elif len(desc) > DESC_MAX:
@@ -133,7 +133,7 @@ class SeoModule(Module):
                 "seo.description.long",
                 f"Длинный description ({len(desc)} симв.)",
                 Severity.LOW,
-                f"«{truncate(desc, 120)}»",
+                f"«{truncate(desc)}»",
                 f"Сократите до {DESC_MAX} символов — остальное обрежется.",
             )
         else:
@@ -153,7 +153,7 @@ class SeoModule(Module):
     def _headings(self, ctx: AuditContext, result: ModuleResult) -> None:
         levels = {f"h{i}": ctx.soup.find_all(f"h{i}") for i in range(1, 7)}
         h1s = levels["h1"]
-        result.fact("H1", truncate(h1s[0].get_text(" ", strip=True), 90) if h1s else "отсутствует")
+        result.fact("H1", truncate(h1s[0].get_text(" ", strip=True)) if h1s else "отсутствует")
         result.fact(
             "Структура заголовков",
             ", ".join(f"{k}: {len(v)}" for k, v in levels.items() if v) or "заголовков нет",
@@ -173,7 +173,7 @@ class SeoModule(Module):
                 "seo.h1.multiple",
                 f"Несколько H1 на странице ({len(h1s)})",
                 Severity.MEDIUM,
-                "; ".join(truncate(h.get_text(" ", strip=True), 40) for h in h1s[:4]),
+                "; ".join(truncate(h.get_text(" ", strip=True)) for h in h1s[:4]),
                 "Оставьте один H1, остальные понизьте до H2. Часто это следствие того, "
                 "что в H1 обёрнут логотип в шапке.",
             )
@@ -235,7 +235,7 @@ class SeoModule(Module):
         links = [t for t in ctx.soup.find_all("link", href=True) if has_rel(t, "canonical")]
         hrefs = [abs_url(ctx.url, t.get("href", "")) for t in links]
         hrefs = [h for h in hrefs if h]
-        result.fact("Canonical", truncate(hrefs[0], 80) if hrefs else "не задан")
+        result.fact("Canonical", truncate(hrefs[0]) if hrefs else "не задан")
 
         if not hrefs:
             result.add(
@@ -252,7 +252,7 @@ class SeoModule(Module):
                 "seo.canonical.multiple",
                 f"Несколько canonical ({len(hrefs)})",
                 Severity.MEDIUM,
-                "; ".join(truncate(h, 60) for h in hrefs[:3]),
+                "; ".join(truncate(h) for h in hrefs[:3]),
                 "Поисковик проигнорирует все конфликтующие canonical. Оставьте один.",
             )
         else:
@@ -262,7 +262,7 @@ class SeoModule(Module):
                     "seo.canonical.mismatch",
                     "Canonical указывает на другой URL",
                     Severity.LOW,
-                    f"страница: {truncate(ctx.url, 60)} → canonical: {truncate(canon, 60)}",
+                    f"страница: {truncate(ctx.url)} → canonical: {truncate(canon)}",
                     "Убедитесь, что это осознанная склейка. Если нет — canonical должен "
                     "совпадать с URL самой страницы.",
                 )
@@ -594,7 +594,7 @@ class SeoModule(Module):
         elif sitemap_urls:
             probe = await ctx.fetcher.get(sitemap_urls[0])
             if probe.status == 200:
-                result.fact("sitemap.xml", f"по адресу из robots.txt: {truncate(sitemap_urls[0], 60)}")
+                result.fact("sitemap.xml", f"по адресу из robots.txt: {truncate(sitemap_urls[0])}")
                 result.ok("seo.sitemap", "Карта сайта доступна по адресу из robots.txt")
             else:
                 result.add(
@@ -637,7 +637,7 @@ class SeoModule(Module):
                 "seo.404.redirect",
                 f"Несуществующий URL редиректит ({probe.status}) вместо 404",
                 Severity.MEDIUM,
-                f"→ {truncate(probe.url, 70)}",
+                f"→ {truncate(probe.url)}",
                 "Массовый редирект битых адресов на главную считается soft-404. "
                 "Отдавайте честный 404 с полезной страницей-заглушкой.",
             )
@@ -670,7 +670,7 @@ class SeoModule(Module):
                 "seo.links.noopener",
                 f"Внешние ссылки target=_blank без rel=noopener ({len(unsafe_blank)})",
                 Severity.LOW,
-                "; ".join(truncate(u, 60) for u in unsafe_blank[:4]),
+                "; ".join(truncate(u) for u in unsafe_blank[:4]),
                 'Добавьте rel="noopener noreferrer" — иначе открытая страница получает '
                 "доступ к window.opener и может подменить вашу вкладку.",
             )
@@ -704,7 +704,7 @@ class SeoModule(Module):
                 "Исправьте адреса или уберите ссылки. Проверьте, нет ли битых ссылок "
                 "в шаблоне — тогда они на каждой странице сайта.",
                 evidence=[
-                    f"{r.status or 'нет ответа'} — {truncate(u, 70)}" for u, r in broken[:8]
+                    f"{r.status or 'нет ответа'} — {truncate(u)}" for u, r in broken[:8]
                 ],
             )
         elif sample:
@@ -718,11 +718,11 @@ class SeoModule(Module):
                 Severity.INFO,
                 "Эти адреса ответили отказом на автоматический запрос — обычно так "
                 "работает защита от роботов, а в браузере ссылка открывается нормально. "
-                f"Домены: {truncate(', '.join(hosts), 120)}.",
+                f"Домены: {truncate(', '.join(hosts))}.",
                 "Проверять такие ссылки нужно вручную. Битыми они не считаются "
                 "и на оценку не влияют.",
                 evidence=[
-                    f"{r.status or 'нет ответа'} — {truncate(u, 70)}" for u, r in guarded[:6]
+                    f"{r.status or 'нет ответа'} — {truncate(u)}" for u, r in guarded[:6]
                 ],
             )
 

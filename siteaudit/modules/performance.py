@@ -149,7 +149,7 @@ class PerformanceModule(Module):
                 "perf.redirect.chain",
                 f"Цепочка из {len(chain)} редиректов до целевой страницы",
                 Severity.MEDIUM,
-                " → ".join(f"{code} {truncate(url, 45)}" for code, url in chain[:4]),
+                " → ".join(f"{code} {truncate(url)}" for code, url in chain[:4]),
                 "Каждый редирект — это лишний round-trip (часто +100–300 мс на мобильной сети). "
                 "Настройте один прямой 301 на финальный URL.",
             )
@@ -158,7 +158,7 @@ class PerformanceModule(Module):
                 "perf.redirect.one",
                 f"Один редирект перед загрузкой ({chain[0][0]})",
                 Severity.LOW,
-                f"{truncate(chain[0][1], 70)} → {truncate(ctx.page.url, 70)}",
+                f"{truncate(chain[0][1])} → {truncate(ctx.page.url)}",
                 "Нормально для http→https и www-склейки. Убедитесь, что во внешних "
                 "материалах и рекламе указан уже финальный адрес.",
             )
@@ -187,7 +187,7 @@ class PerformanceModule(Module):
                 "Парсинг HTML останавливается, пока такой скрипт не скачается и не выполнится.",
                 "Добавьте defer (или async для независимых счётчиков), либо перенесите "
                 "подключение в конец <body>. Счётчики аналитики всегда грузите асинхронно.",
-                evidence=[truncate(s["src"], 70) for s in blocking_js[:5]],
+                evidence=[truncate(s["src"]) for s in blocking_js[:5]],
             )
         else:
             result.ok("perf.render.js", "Блокирующих скриптов в <head> нет")
@@ -320,7 +320,7 @@ class PerformanceModule(Module):
 
         for (kind, url), resp in zip(sample, responses):
             if not resp.ok:
-                failed.append(f"{resp.status or 'ошибка'} — {truncate(url, 60)}")
+                failed.append(f"{resp.status or 'ошибка'} — {truncate(url)}")
                 continue
             size = resp.size or (resp.transfer_size or 0)
             total += size
@@ -332,14 +332,14 @@ class PerformanceModule(Module):
             max_age = re.search(r"max-age=(\d+)", cache)
             long_cache = bool(max_age and int(max_age.group(1)) >= 86400) or "immutable" in cache
             if not long_cache and "no-store" not in cache:
-                no_cache.append(truncate(url, 70))
+                no_cache.append(truncate(url))
 
             ctype = resp.content_type
             is_text = ctype.startswith("text/") or any(
                 x in ctype for x in ("javascript", "json", "xml", "svg")
             )
             if is_text and not resp.header("content-encoding") and size > 5000:
-                uncompressed.append(truncate(url, 70))
+                uncompressed.append(truncate(url))
 
             if kind == "image":
                 fmt = ctype.split("/")[-1]
@@ -390,7 +390,7 @@ class PerformanceModule(Module):
                 "Сожмите изображения, минифицируйте и разделите JS-бандлы, "
                 "подгружайте тяжёлые виджеты по требованию.",
                 evidence=[
-                    f"{human_size(s)} — {truncate(u, 60)}"
+                    f"{human_size(s)} — {truncate(u)}"
                     for u, s in sorted(heavy, key=lambda x: -x[1])[:6]
                 ],
             )
@@ -405,7 +405,7 @@ class PerformanceModule(Module):
                 "Переведите картинки в WebP или AVIF, отдавайте через <picture> "
                 "с fallback на старый формат.",
                 evidence=[
-                    f"{human_size(s)} — {truncate(u, 60)}"
+                    f"{human_size(s)} — {truncate(u)}"
                     for u, s in sorted(legacy_images, key=lambda x: -x[1])[:6]
                 ],
             )
@@ -504,7 +504,7 @@ class PerformanceModule(Module):
                     "Отдавайте через <picture> с fallback на исходный формат.",
                     evidence=[
                         f"−{human_size(s.saved)} ({s.ratio * 100:.0f}%): {s.fmt} "
-                        f"{s.width}×{s.height}, {human_size(s.original)} — {truncate(s.url, 45)}"
+                        f"{s.width}×{s.height}, {human_size(s.original)} — {truncate(s.url)}"
                         for s in worth[:6]
                     ],
                 )
@@ -531,7 +531,7 @@ class PerformanceModule(Module):
                 "через srcset с несколькими вариантами ширины.",
                 evidence=[
                     f"{s.width}×{s.height} при показе в "
-                    f"{s.displayed_width or '?'}px — {truncate(s.url, 50)}"
+                    f"{s.displayed_width or '?'}px — {truncate(s.url)}"
                     for s in oversized[:6]
                 ],
             )
